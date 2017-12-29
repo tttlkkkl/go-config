@@ -58,13 +58,17 @@ type envOption struct {
 	ConfPath string `toml:"config_path"`
 }
 
+//ds 数据结构类型 data structure
+type ds map[string]interface{}
+
 type conf struct {
 	//配置数据 第一层key为配置文件名 如果是配置中心xdiamond则为project名称
-	data map[string]interface{}
+	data ds
+	//存储变量类型
+	types ds
 }
 
 func init() {
-	fmt.Println("xxx")
 	//由于 init 方法的执行顺序问题，如果日志尚未初始化，要先初始化
 	if Log == nil {
 		logInit()
@@ -82,7 +86,8 @@ func newConf() {
 	if err != nil {
 		Log.Fatal("初始化配置环境失败", err)
 	}
-	_, err = analysisLocalConfFile(e.Base.DataDir + "/app.toml")
+	C = new(conf)
+	err = analysisLocalConfFile(e.Base.DataDir+"/app.toml", C)
 	fmt.Println(err)
 }
 
@@ -93,12 +98,19 @@ func getEnv(envFile string) (*env, error) {
 	return env, err
 }
 
-func analysisLocalConfFile(confFile string) (toml.MetaData, error) {
+//解析 toml日志文件
+func analysisLocalConfFile(confFile string, c *conf) error {
 	var tmp map[string]interface{}
-	x, y := toml.DecodeFile(confFile, &tmp)
-	fmt.Println("=====", x)
+	_, err := toml.DecodeFile(confFile, &tmp)
+	if err != nil {
+		Log.Fatal("日志文件解析失败:", err)
+	}
+	for k, v := range tmp {
+		fmt.Printf("k:%s v:%s \n", k, v)
+	}
+	fmt.Printf("类型:%T ,值:%s\n", getTypeOf(c.data), getTypeOf(c.data))
 	fmt.Println("数值", tmp)
-	return x, y
+	return nil
 }
 
 //T 测试
