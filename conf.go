@@ -1,7 +1,9 @@
 package conf
 
 import (
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -78,8 +80,7 @@ func init() {
 
 //初始化
 func newConf() {
-	envFile, config := getOption()
-	fmt.Println(envFile, config)
+	envFile, _ := getOption()
 	var err error
 	e, err = getEnv(envFile)
 	fmt.Println(e)
@@ -88,7 +89,9 @@ func newConf() {
 	}
 	C = new(conf)
 	err = analysisLocalConfFile(e.Base.DataDir+"/app.toml", C)
-	fmt.Println(err)
+	if err != nil {
+		Log.Fatal("配置解析失败", err)
+	}
 }
 
 //获取环境配置
@@ -105,11 +108,40 @@ func analysisLocalConfFile(confFile string, c *conf) error {
 	if err != nil {
 		Log.Fatal("日志文件解析失败:", err)
 	}
-	for k, v := range tmp {
-		fmt.Printf("k:%s v:%s \n", k, v)
+	//_ = c.fillMap(tmp)
+	return nil
+}
+func (c *conf) fillMap(m interface{}) error {
+	tmp, ok := m.(map[string]interface{})
+	fmt.Println("xxx", tmp, ok)
+	if !ok {
+		return errors.New("类型断言失败")
 	}
-	fmt.Printf("类型:%T ,值:%s\n", getTypeOf(c.data), getTypeOf(c.data))
-	fmt.Println("数值", tmp)
+	for k, v := range tmp {
+		switch o := v.(type) {
+		case map[string]interface{}:
+			c.fillMap(v)
+			fmt.Printf("map[string]interface:  key:%s type: %T value:%v \n", k, o, v)
+		case []interface{}:
+			c.fillMap(v)
+			fmt.Printf("[]interface: key:%s type: %T value:%v\n", k, o, v)
+		case string:
+			fmt.Printf("[]interface: key:%s type: %T value:%v\n", k, o, v)
+		case int, int8, int16, int32, int64:
+			fmt.Printf("[]interface: key:%s type: %T value:%v\n", k, o, v)
+		case uint, uint8, uint16, uint32, uint64:
+			fmt.Printf("[]interface: key:%s type: %T value:%v\n", k, o, v)
+		case float32, float64:
+			fmt.Printf("[]interface: key:%s type: %T value:%v\n", k, o, v)
+		case bool:
+			fmt.Printf("[]interface: key:%s type: %T value:%v\n", k, o, v)
+		case time.Time:
+			fmt.Printf("[]interface: key:%s type: %T value:%v\n", k, o, v)
+		default:
+			fmt.Printf("未知类型: key:%s type: %T value:%v\n", k, o, v)
+		}
+	}
+
 	return nil
 }
 

@@ -1,0 +1,129 @@
+[
+    {
+        "config": {
+            "createTime": 1467946504000,
+            "createUser": "web",
+            "id": 3898,
+            "key": "database.common.adapter",
+            "profileId": 451,
+            "value": "pdo_mysql",
+            "version": 0
+        },
+        "fromProfile": "base",
+        "fromProject": {
+            "artifactId": "web_swooleroot-database",
+            "groupId": "web",
+            "id": 108,
+            "ownerGroup": 3,
+            "version": "1.0"
+        }
+    },
+    {
+        "config": {
+            "createTime": 1467946515000,
+            "createUser": "web",
+            "id": 3899,
+            "key": "database.common.charset",
+            "lastVersionValue": "latin1",
+            "profileId": 451,
+            "updateTime": 1478524451000,
+            "updateUser": "admin",
+            "value": "utf8mb4",
+            "version": 1
+        },
+        "fromProfile": "base",
+        "fromProject": {
+            "artifactId": "web_swooleroot-database",
+            "groupId": "web",
+            "id": 108,
+            "ownerGroup": 3,
+            "version": "1.0"
+        }
+    },
+    {
+        "config": {
+            "createTime": 1514358767000,
+            "createUser": "web",
+            "description": "数据库类型",
+            "id": 7827,
+            "key": "database",
+            "lastVersionValue": "mysql",
+            "profileId": 998,
+            "updateTime": 1514358881000,
+            "updateUser": "web",
+            "value": "mysql",
+            "version": 2
+        },
+        "fromProfile": "dev",
+        "fromProject": {
+            "artifactId": "golang-test",
+            "description": "golang接入测试",
+            "groupId": "web",
+            "id": 235,
+            "ownerGroup": 3,
+            "version": "1.0"
+        }
+    },
+    {
+        "config": {
+            "createTime": 1514462310000,
+            "createUser": "web",
+            "id": 7835,
+            "key": "ips",
+            "profileId": 998,
+            "value": "[1,2,3,4]",
+            "version": 0
+        },
+        "fromProfile": "dev",
+        "fromProject": {
+            "artifactId": "golang-test",
+            "description": "golang接入测试",
+            "groupId": "web",
+            "id": 235,
+            "ownerGroup": 3,
+            "version": "1.0"
+        }
+    },
+    {
+        "config": {
+            "createTime": 1514462663000,
+            "createUser": "web",
+            "description": "xxx",
+            "id": 7836,
+            "key": "test1",
+            "profileId": 998,
+            "value": "value",
+            "version": 0
+        },
+        "fromProfile": "dev",
+        "fromProject": {
+            "artifactId": "golang-test",
+            "description": "golang接入测试",
+            "groupId": "web",
+            "id": 235,
+            "ownerGroup": 3,
+            "version": "1.0"
+        }
+    },
+    {
+        "config": {
+            "createTime": 1514462663000,
+            "createUser": "web",
+            "description": "xxx",
+            "id": 7837,
+            "key": "test2",
+            "profileId": 998,
+            "value": "x",
+            "version": 0
+        },
+        "fromProfile": "dev",
+        "fromProject": {
+            "artifactId": "golang-test",
+            "description": "golang接入测试",
+            "groupId": "web",
+            "id": 235,
+            "ownerGroup": 3,
+            "version": "1.0"
+        }
+    }
+]
