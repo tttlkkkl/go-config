@@ -3,6 +3,8 @@ package conf
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -17,6 +19,33 @@ const (
 var C *conf
 var e *env
 
+// Type 自定义类型，用于归纳基本数据类型
+type Type int
+
+const (
+	//String 字符串类型
+	String Type = iota
+	//Int 有符号整型 int32 也表示Unicode码点即rune类型
+	Int
+	//Uint 无符号整型uint8也表示字符型 byte类型
+	Uint
+	//Float 浮点数
+	Float
+	//Bool 布尔类型
+	Bool
+	//Array 数组  []interface{}
+	Array
+)
+func init() {
+	//由于 init 方法的执行顺序问题，如果日志尚未初始化，要先初始化
+	if Log == nil {
+		logInit()
+	}
+	newConf()
+}
+//Key 自定义类型key
+type Key string
+func 
 //configCenter xdiamond配置中心连接定义
 type xdiamond struct {
 	//groupId 对应groupId
@@ -70,20 +99,11 @@ type conf struct {
 	types ds
 }
 
-func init() {
-	//由于 init 方法的执行顺序问题，如果日志尚未初始化，要先初始化
-	if Log == nil {
-		logInit()
-	}
-	newConf()
-}
-
 //初始化
 func newConf() {
 	envFile, _ := getOption()
 	var err error
 	e, err = getEnv(envFile)
-	fmt.Println(e)
 	if err != nil {
 		Log.Fatal("初始化配置环境失败", err)
 	}
@@ -106,25 +126,29 @@ func analysisLocalConfFile(confFile string, c *conf) error {
 	var tmp map[string]interface{}
 	_, err := toml.DecodeFile(confFile, &tmp)
 	if err != nil {
-		Log.Fatal("日志文件解析失败:", err)
+		Log.Fatal("配置文件"+confFile+"解析失败:", err)
 	}
-	//_ = c.fillMap(tmp)
+	_, file := filepath.Split(confFile)
+	file = strings.TrimSuffix(file, filepath.Ext(file))
+	if file == "" {
+		return errors.New("无效的配置文件名称")
+	}
+	_ = c.fillMap(tmp, file)
 	return nil
 }
-func (c *conf) fillMap(m interface{}) error {
+
+//填充存储结构
+func (c *conf) fillMap(m interface{}, objectName string,key string) error {
 	tmp, ok := m.(map[string]interface{})
-	fmt.Println("xxx", tmp, ok)
 	if !ok {
 		return errors.New("类型断言失败")
 	}
 	for k, v := range tmp {
 		switch o := v.(type) {
 		case map[string]interface{}:
-			c.fillMap(v)
-			fmt.Printf("map[string]interface:  key:%s type: %T value:%v \n", k, o, v)
+			c.fillMap(v, objectName)
 		case []interface{}:
-			c.fillMap(v)
-			fmt.Printf("[]interface: key:%s type: %T value:%v\n", k, o, v)
+			c.fillMap(v, objectName)
 		case string:
 			fmt.Printf("[]interface: key:%s type: %T value:%v\n", k, o, v)
 		case int, int8, int16, int32, int64:
