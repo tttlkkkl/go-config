@@ -1,10 +1,13 @@
 package conf
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -20,11 +23,11 @@ var C *conf
 var e *env
 
 // Type 自定义类型，用于归纳基本数据类型
-type Type int
+type confType int
 
 const (
 	//String 字符串类型
-	String Type = iota
+	String confType = iota
 	//Int 有符号整型 int32 也表示Unicode码点即rune类型
 	Int
 	//Uint 无符号整型uint8也表示字符型 byte类型
@@ -35,7 +38,12 @@ const (
 	Bool
 	//Array 数组  []interface{}
 	Array
+	//Time 时间类型
+	Time
+	//Undefined 未定义的类型
+	Undefined
 )
+
 func init() {
 	//由于 init 方法的执行顺序问题，如果日志尚未初始化，要先初始化
 	if Log == nil {
@@ -43,9 +51,15 @@ func init() {
 	}
 	newConf()
 }
-//Key 自定义类型key
-type Key string
-func 
+
+//confKeys 自定义类型key
+type confKeys []string
+
+//String 返回key字符串
+func (k confKeys) toString() string {
+	return strings.Join(k, ".")
+}
+
 //configCenter xdiamond配置中心连接定义
 type xdiamond struct {
 	//groupId 对应groupId
@@ -89,14 +103,17 @@ type envOption struct {
 	ConfPath string `toml:"config_path"`
 }
 
-//ds 数据结构类型 data structure
-type ds map[string]interface{}
-
 type conf struct {
-	//配置数据 第一层key为配置文件名 如果是配置中心xdiamond则为project名称
-	data ds
-	//存储变量类型
-	types ds
+	//配置数据
+	data map[string]map[string]result
+	//当前选定的读取索引前缀
+	indexPrefix string
+	//写锁定，后续如果加入热更新写的时候不允许读操作避免大并发情况下读取到不完整数据
+	mutex *sync.RWMutex
+}
+type result struct {
+	dataType confType
+	value    interface{}
 }
 
 //初始化
@@ -108,7 +125,10 @@ func newConf() {
 		Log.Fatal("初始化配置环境失败", err)
 	}
 	C = new(conf)
-	err = analysisLocalConfFile(e.Base.DataDir+"/app.toml", C)
+	C.data = make(map[string]map[string]result)
+	C.mutex = new(sync.RWMutex)
+	//err = analysisLocalConfFile(e.Base.DataDir+"/app.toml", C)
+	err = analysisXdiamondConf("", C)
 	if err != nil {
 		Log.Fatal("配置解析失败", err)
 	}
@@ -133,39 +153,78 @@ func analysisLocalConfFile(confFile string, c *conf) error {
 	if file == "" {
 		return errors.New("无效的配置文件名称")
 	}
-	_ = c.fillMap(tmp, file)
+	kvMap := make(map[string]result)
+	_ = setKvMap(tmp, make(confKeys, 0), kvMap)
+	c.data[file] = kvMap
 	return nil
 }
 
-//填充存储结构
-func (c *conf) fillMap(m interface{}, objectName string,key string) error {
-	tmp, ok := m.(map[string]interface{})
-	if !ok {
-		return errors.New("类型断言失败")
+//解析配置中心数据
+func analysisXdiamondConf(bojectName string, c *conf) error {
+	data, err := ioutil.ReadFile(e.Base.DataDir + "/xdaimond.json")
+	if err != nil {
+		return err
 	}
-	for k, v := range tmp {
-		switch o := v.(type) {
-		case map[string]interface{}:
-			c.fillMap(v, objectName)
-		case []interface{}:
-			c.fillMap(v, objectName)
-		case string:
-			fmt.Printf("[]interface: key:%s type: %T value:%v\n", k, o, v)
-		case int, int8, int16, int32, int64:
-			fmt.Printf("[]interface: key:%s type: %T value:%v\n", k, o, v)
-		case uint, uint8, uint16, uint32, uint64:
-			fmt.Printf("[]interface: key:%s type: %T value:%v\n", k, o, v)
-		case float32, float64:
-			fmt.Printf("[]interface: key:%s type: %T value:%v\n", k, o, v)
-		case bool:
-			fmt.Printf("[]interface: key:%s type: %T value:%v\n", k, o, v)
-		case time.Time:
-			fmt.Printf("[]interface: key:%s type: %T value:%v\n", k, o, v)
-		default:
-			fmt.Printf("未知类型: key:%s type: %T value:%v\n", k, o, v)
+	var tmp interface{}
+	err = json.Unmarshal(data, &tmp)
+	if err != nil {
+		return err
+	}
+	tmpSlice, ok := tmp.([]interface{})
+	if !ok {
+		return errors.New("配置中心:类型断言失败,请检查json结构" + fmt.Sprintf("%v", tmp))
+	}
+	for _, v := range tmpSlice {
+		val, ok := v.(map[string]interface{})
+		if ok {
+			conf, ok := val["config"]
+			if ok {
+				fmt.Println(conf)
+			}
 		}
 	}
+	return nil
+}
+func getValue(key string, m interface{}) (interface{}, bool) {
+	val, ok := m.(map[string]interface{})
+	if ok {
+		v, ok := val[key]
+		if ok {
+			return v, true
+		}
+	}
+	return nil, false
+}
 
+//形成kv结构
+func setKvMap(m interface{}, keys confKeys, kvMap map[string]result) error {
+	tmp, ok := m.(map[string]interface{})
+	if !ok {
+		return errors.New("配置文件:类型断言失败,请检查配置文件内容" + fmt.Sprintf("%v", tmp))
+	}
+	for k, v := range tmp {
+		keyNodes := append(keys, k)
+		switch v.(type) {
+		case map[string]interface{}:
+			_ = setKvMap(v, keyNodes, kvMap)
+		case []interface{}:
+			kvMap[keyNodes.toString()] = result{Array, v}
+		case string:
+			kvMap[keyNodes.toString()] = result{String, v}
+		case int, int8, int16, int32, int64:
+			kvMap[keyNodes.toString()] = result{Int, v}
+		case uint, uint8, uint16, uint32, uint64:
+			kvMap[keyNodes.toString()] = result{Uint, v}
+		case float32, float64:
+			kvMap[keyNodes.toString()] = result{Float, v}
+		case bool:
+			kvMap[keyNodes.toString()] = result{Bool, v}
+		case time.Time:
+			kvMap[keyNodes.toString()] = result{Time, v}
+		default:
+			kvMap[keyNodes.toString()] = result{Undefined, v}
+		}
+	}
 	return nil
 }
 
