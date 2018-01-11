@@ -28,9 +28,9 @@ func main() {
 
 	//最稳定的读法是 不设置前缀，指定整个的配置值路径,像下面这样
 	fmt.Println(x.Get("servers.alpha.ip").String())
-    fmt.Println(x.Get("servers.alpha.dc").Value())
+        fmt.Println(x.Get("servers.alpha.dc").Value())
     
-    fmt.Println(x.Get("owner.name").String())
+        fmt.Println(x.Get("owner.name").String())
 	fmt.Println(x.Get("owner.organization").String())
 	fmt.Println(x.Get("owner.dobbio").Time())
 	fmt.Println(x.Get("owner.int").Int())
@@ -44,6 +44,11 @@ func main() {
 ```golang
 go run main.go -env="$GOPATH/github.com/tttlkkkl/go-config/_examples/.env.toml" -conf="xxx.toml"
 ```
+
+由以上示例可以看出引用本库后程序默认支持两个参数传入,其中:
+- -env 接受一个toml格式的配置文件,定义配置环境
+- -conf 表示实时额外加载的配置文件或目录,如果是目录则会加载该目录下所有以".toml"为后缀的文件。
+
 ## 注意的点
 - **所有的配置在第一次加载本库时已初始化完成，不建议或者不允许将获取的配置值存储在全局变量中使用，以期为后续增加本地文件热加载，以及配置中心实时同步提供支持**
 - **为了防止并发情况下新旧配置数据被混合读取而导致异常，配置文件在更新时写锁定**
@@ -52,9 +57,6 @@ go run main.go -env="$GOPATH/github.com/tttlkkkl/go-config/_examples/.env.toml" 
 - **本地配置文件名为去除后缀的文件名称,当本地配置文件名为".toml"时将配置文件名置为"."**
 - **xdiamond配置时间需以RFC3339因特网标准时间为准,否则Result.Time()无法取得预期的时间，此时也可以Result.Value()获取原始值并自行转换**
 - **xdiamond配置中心，只支持kv配置,v只能是字符串， 不能得到如[]interface{}结构数据，如有需要自行处理**
-由以上示例可以看出引用本库后程序默认支持两个参数传入,其中:
-- -env 接受一个toml格式的配置文件,定义配置环境
-- -conf 表示实时额外加载的配置文件或目录,如果是目录则会加载该目录下所有以".toml"为后缀的文件。
 
 #### 环境配置完整示例:
 ```toml
