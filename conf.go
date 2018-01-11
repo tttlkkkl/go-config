@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -51,7 +51,7 @@ func init() {
 	if Log == nil {
 		logInit()
 	}
-	newConf()
+	initConf()
 }
 
 //confKeys 自定义类型key
@@ -76,6 +76,8 @@ type xdiamond struct {
 	SecretKey string `toml:"secret_key"`
 	//address 配置中心服务器地址
 	Address string
+	//配置中心连接方式 支持 http,tcp
+	ConnMode string `toml:"conn_mode"`
 }
 
 // 环境定义
@@ -347,8 +349,8 @@ func (r *Result) Uint() uint64 {
 }
 
 //初始化
-func newConf() {
-	envFile, _ := getOption()
+func initConf() {
+	envFile, confFlag := getOption()
 	var err error
 	e, err = getEnv(envFile)
 	if err != nil {
@@ -357,25 +359,142 @@ func newConf() {
 	c = new(conf)
 	c.data = make(map[string]ConfigObject)
 	c.mutex = new(sync.RWMutex)
-	err = analysisLocalConfFile(e.Base.DataDir+"/app.toml", c)
+	//加载本地配置
+	err = lodLocalConfigFile(confFlag)
 	if err != nil {
-		Log.Fatal("配置文件"+e.Xdiamond.ArtifactID+"解析失败", err)
+		Log.Fatal("本地配置文件加载失败", err)
 	}
-	err = analysisXdiamondConf(e.Xdiamond.ArtifactID, c)
+	//同步配置中心配置
+	err = synXdiamondConfig()
 	if err != nil {
-		Log.Fatal("配置中心"+e.Xdiamond.ArtifactID+"解析失败", err)
+		Log.Fatal("配置中心"+e.Xdiamond.ArtifactID+"同步失败", err)
 	}
+}
+
+//加载并解析本地配置文件
+func lodLocalConfigFile(confFlag string) error {
+	//环境配置指定的配置文件目录
+	confFiles, err := getTomlFilesInDir(e.Base.Options.ConfPath)
+	if err != nil {
+		return err
+	}
+	if confFlag != "" {
+		configFlagInfo, err := os.Stat(confFlag)
+		if err != nil {
+			return err
+		}
+		//如果传入的是一个目录
+		if configFlagInfo.IsDir() {
+			tmpConfigFiles, err := getTomlFilesInDir(confFlag)
+			if err != nil {
+				return err
+			}
+			//追加目录下的所有配置文件
+			confFiles = append(confFiles, tmpConfigFiles...)
+		} else {
+			confFiles = append(confFiles, confFlag)
+		}
+	}
+	for _, v := range confFiles {
+		err = analysisLocalConfFile(v)
+		if err != nil {
+			return errors.New("配置文件" + v + "解析失败: " + err.Error())
+		}
+	}
+	return nil
+}
+
+//同步配置中心文件
+func synXdiamondConfig() error {
+	if e.Xdiamond.ConnMode != "http" && e.Xdiamond.ConnMode != "tcp" {
+		return errors.New("无效的配置中心连接方式")
+	}
+	var tmp interface{}
+	var err error
+	var data []byte
+	if e.Xdiamond.ConnMode == "http" {
+		data, err = httpConn()
+		if err != nil {
+			return err
+		}
+
+		err = json.Unmarshal(data, &tmp)
+		if err != nil {
+			return err
+		}
+		tmpSlice, ok := tmp.([]interface{})
+		if !ok {
+			val, ok := getValue("success", tmp)
+			if ok {
+				b, ok := val.(bool)
+				if ok && !b {
+					return errors.New("http请求错误:" + fmt.Sprintf("%v", tmp))
+				}
+			}
+			return errors.New("配置中心:类型断言失败,请检查json结构" + fmt.Sprintf("%v", tmp))
+		}
+		err = analysisXdiamondConf(tmpSlice)
+		if err != nil {
+			return err
+		}
+	}
+	if e.Xdiamond.ConnMode == "tcp" {
+
+	}
+	return nil
 }
 
 //获取环境配置
 func getEnv(envFile string) (*env, error) {
 	env := new(env)
 	_, err := toml.DecodeFile(envFile, env)
+	if env.Base.DataDir == "" {
+		env.Base.DataDir, err = getAppRuntimeDir()
+		if err != nil {
+			return nil, err
+		}
+	}
+	if env.Base.Env == "" {
+		env.Base.Env = "dev"
+	}
+	if env.Base.First == 0 {
+		env.Base.First = 1
+	}
+	if env.Base.Options.CachePath == "" {
+		env.Base.Options.CachePath = env.Base.DataDir + "/cache/"
+	}
+	if env.Base.Options.ConfPath == "" {
+		env.Base.Options.ConfPath = env.Base.DataDir + "/conf/"
+	}
+	if env.Base.Options.LogPath == "" {
+		env.Base.Options.LogPath = env.Base.DataDir + "/log/"
+	}
+	if env.Xdiamond.GroupID == "" {
+		env.Xdiamond.GroupID = "web"
+	}
+	if env.Xdiamond.ArtifactID == "" {
+		env.Xdiamond.ArtifactID = "golang-test"
+	}
+	if env.Xdiamond.Version == "" {
+		env.Xdiamond.Version = "1.0"
+	}
+	if env.Xdiamond.SecretKey == "" {
+		env.Xdiamond.SecretKey = ""
+	}
+	if env.Xdiamond.Address == "" {
+		env.Xdiamond.Address = "10.0.200.53:8089"
+	}
+	if env.Xdiamond.Profile == "" {
+		env.Xdiamond.Profile = env.Base.Env
+	}
+	if env.Xdiamond.ConnMode == "" {
+		env.Xdiamond.ConnMode = "tcp"
+	}
 	return env, err
 }
 
 //解析 toml日志文件
-func analysisLocalConfFile(confFile string, c *conf) error {
+func analysisLocalConfFile(confFile string) error {
 	var tmp map[string]interface{}
 	_, err := toml.DecodeFile(confFile, &tmp)
 	if err != nil {
@@ -384,7 +503,7 @@ func analysisLocalConfFile(confFile string, c *conf) error {
 	_, file := filepath.Split(confFile)
 	file = strings.TrimSuffix(file, filepath.Ext(file))
 	if file == "" {
-		return errors.New("无效的配置文件名称")
+		file = "."
 	}
 	kvMap := make(map[string]Result)
 	err = setKvMap(tmp, make(confKeys, 0), kvMap)
@@ -396,22 +515,14 @@ func analysisLocalConfFile(confFile string, c *conf) error {
 }
 
 //解析配置中心数据
-func analysisXdiamondConf(objectName string, c *conf) error {
-	data, err := ioutil.ReadFile(e.Base.DataDir + "/xdaimond.json")
-	if err != nil {
-		return err
-	}
-	if objectName == "" {
-		return errors.New("无效的配置中心对象名称")
-	}
-	var tmp interface{}
-	err = json.Unmarshal(data, &tmp)
-	if err != nil {
-		return err
-	}
-	tmpSlice, ok := tmp.([]interface{})
-	if !ok {
-		return errors.New("配置中心:类型断言失败,请检查json结构" + fmt.Sprintf("%v", tmp))
+func analysisXdiamondConf(tmpSlice []interface{}) error {
+	//测试配置对象是否存在--如果设置为优先加载本地文件将不再加载配置中心配置,否则覆盖本地配置
+	if e.Base.First == 1 {
+		_, ok := c.data[e.Xdiamond.ArtifactID]
+		if ok {
+			Log.Info("配置对象" + e.Xdiamond.ArtifactID + "已存在，根据约定不予加载")
+			return nil
+		}
 	}
 	var kvMapTmp = make(map[string]interface{})
 	for _, v := range tmpSlice {
@@ -430,11 +541,11 @@ func analysisXdiamondConf(objectName string, c *conf) error {
 		}
 	}
 	kvMap := make(map[string]Result)
-	err = setKvMap(kvMapTmp, make(confKeys, 0), kvMap)
+	err := setKvMap(kvMapTmp, make(confKeys, 0), kvMap)
 	if err != nil {
 		return err
 	}
-	c.data[objectName] = ConfigObject{kvMap, "", true}
+	c.data[e.Xdiamond.ArtifactID] = ConfigObject{kvMap, "", true}
 	return nil
 }
 
