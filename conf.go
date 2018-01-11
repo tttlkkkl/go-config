@@ -146,7 +146,7 @@ func (c *ConfigObject) Get(key string) *Result {
 	if key == "" {
 		return new(Result)
 	}
-	key = c.indexPrefix + key
+	key = c.indexPrefix + "." + key
 	r, ok := c.data[key]
 	if ok {
 		return &r
@@ -167,14 +167,14 @@ func (c *ConfigObject) Exists() bool {
 //SetPrefix 设置配置读取索引前缀，此方法有助于简短优雅的读取一个配置节信息,设置成功后每次使用Get函数都会自动在key前连接这个prefix
 //为了避免某些并发情况下用此方法读取配置时出现混乱，必须在清除后才能重新设置
 func (c *ConfigObject) SetPrefix(prefix string) bool {
-	if c.indexPrefix != "" {
+	if c.indexPrefix == "" {
 		c.indexPrefix = prefix
 		return true
 	}
 	return false
 }
 
-//UnsetPrefix 清除已设置的key前缀
+//UnsetPrefix 清除以设置的key前缀
 func (c *ConfigObject) UnsetPrefix() {
 	c.indexPrefix = ""
 }
@@ -233,7 +233,7 @@ func (r *Result) ToDateTime() string {
 	return r.Time().Format(timeLayout)
 }
 
-//Bool 已布尔型返回配置值
+//Bool 以布尔型返回配置值
 func (r *Result) Bool() bool {
 	switch r.dataType {
 	case String:
@@ -310,7 +310,7 @@ func (r *Result) Float() float64 {
 	return float64(0)
 }
 
-//Int 已int64类型返回配置值
+//Int 以int64类型返回配置值
 func (r *Result) Int() int64 {
 	switch r.dataType {
 	case String:
