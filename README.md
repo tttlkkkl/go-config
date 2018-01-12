@@ -6,7 +6,7 @@
 package main
 
 import (
-	"conf"
+	"github.com/tttlkkkl/go-config"
 	"fmt"
 )
 
@@ -56,7 +56,7 @@ go run main.go -env="$GOPATH/github.com/tttlkkkl/go-config/_examples/.env.toml" 
 - **对于配置中心xdiamond而言,项目名称(object)就是配置文件名称**
 - **本地配置文件名为去除后缀的文件名称,当本地配置文件名为".toml"时将配置文件名置为"."**
 - **xdiamond配置时间需以RFC3339因特网标准时间为准,否则Result.Time()无法取得预期的时间，此时也可以Result.Value()获取原始值并自行转换**
-- **xdiamond配置中心，只支持kv配置,v只能是字符串， 不能得到如[]interface{}结构数据，如有需要自行处理**
+- **xdiamond配置中心，只支持kv配置,v只能是字符串， 不能得到像[]interface{}一样的结构数据，如有需要自行处理**
 
 #### 环境配置完整示例:
 ```toml
@@ -93,8 +93,8 @@ go run main.go -env="$GOPATH/github.com/tttlkkkl/go-config/_examples/.env.toml" 
 	secret_key ="68bq57jhxmi"
 	#address 配置中心服务器地址 不允许添加http等前缀，ip+port  或 域名+port
 	address ="10.0.200.53:8089"
-    #配置中心数据同步方式,可选数值 http,tcp 。http拉取数据方式在程序启动时同步一次,默认tcp
-    conn_mode="http"
+        #配置中心数据同步方式,可选数值 http,tcp 。http拉取数据方式在程序启动时同步一次,默认tcp
+        conn_mode="http"
 ```
 #### go doc
 ```golang
