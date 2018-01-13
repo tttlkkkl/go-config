@@ -166,14 +166,7 @@ type client struct {
 
 //TCPClient tcp客户端
 func TCPClient() {
-	var a = auth{
-		"groupId":    e.Xdiamond.GroupID,
-		"artifactId": e.Xdiamond.ArtifactID,
-		"version":    e.Xdiamond.Version,
-		"profile":    e.Xdiamond.Profile,
-		"secretKey":  e.Xdiamond.SecretKey,
-	}
-	fmt.Println(a)
+
 	fmt.Println(REQUEST, RESPONSE, ONEWAY)
 	conn, err := net.Dial("tcp", e.Xdiamond.Address)
 	defer conn.Close()
@@ -189,7 +182,7 @@ func TCPClient() {
 	}
 	go client.handelConn()
 	client.receivePackets()
-	client.sendHeartPacket()
+	client.getConfig()
 }
 
 //处理连接
@@ -213,6 +206,11 @@ func (c *client) handelConn() {
 
 }
 
+//获取配置
+func (c *client) getConfig() {
+	c.sendDataPacket(newRequest(REQUEST, GETCONFIG))
+}
+
 //发送数据包
 func (c *client) sendDataPacket(r *request) {
 	data, err := json.Marshal(r)
@@ -227,6 +225,7 @@ func (c *client) sendDataPacket(r *request) {
 
 //发送心跳包
 func (c *client) sendHeartPacket() {
+	c.sendDataPacket(newRequest(REQUEST, HEARTBEAT))
 }
 
 //从服务器接收数据
@@ -234,6 +233,23 @@ func (c *client) receivePackets() {
 	for {
 		readPacket(c.conn, c.resvChanl)
 	}
+}
+
+//实例化一个请求
+func newRequest(msgType messageType, cmdType commandType) *request {
+	var a = auth{
+		"groupId":    e.Xdiamond.GroupID,
+		"artifactId": e.Xdiamond.ArtifactID,
+		"version":    e.Xdiamond.Version,
+		"profile":    e.Xdiamond.Profile,
+		"secretKey":  e.Xdiamond.SecretKey,
+	}
+	r := &request{
+		Type:    msgType,
+		Command: cmdType,
+		Data:    a,
+	}
+	return r
 }
 
 //通信协议封装
