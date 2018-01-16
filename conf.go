@@ -46,6 +46,17 @@ const (
 	Undefined
 )
 
+type source int
+
+const (
+	//配置来源，文件
+	sourceFile source = iota + 1
+	//配置来源，配置中心
+	sourceXdaimond
+	//配置来源，本地备份
+	sourceBackups
+)
+
 func init() {
 	//由于 init 方法的执行顺序问题，如果日志尚未初始化，要先初始化
 	if Log == nil {
@@ -111,6 +122,8 @@ type envOption struct {
 type conf struct {
 	//配置数据
 	data map[string]ConfigObject
+	//存储配置来源  1 本地配置文件   2 配置中心
+	source map[string]source
 	//写锁定，后续如果加入热更新写的时候不允许读操作避免大并发情况下读取到不完整数据
 	mutex *sync.RWMutex
 }
@@ -174,7 +187,7 @@ func (c *ConfigObject) SetPrefix(prefix string) bool {
 	return false
 }
 
-//UnsetPrefix 清除以设置的key前缀
+//UnsetPrefix 清除已设置的key前缀
 func (c *ConfigObject) UnsetPrefix() {
 	c.indexPrefix = ""
 }
@@ -358,6 +371,7 @@ func initConf() {
 	}
 	c = new(conf)
 	c.data = make(map[string]ConfigObject)
+	c.source = make(map[string]source)
 	c.mutex = new(sync.RWMutex)
 	//加载本地配置
 	err = lodLocalConfigFile(confFlag)
@@ -511,7 +525,11 @@ func analysisLocalConfFile(confFile string) error {
 	if err != nil {
 		return err
 	}
+	//写锁定
+	c.mutex.Lock()
 	c.data[file] = ConfigObject{kvMap, "", true}
+	c.source[file] = sourceFile
+	c.mutex.Unlock()
 	return nil
 }
 
@@ -521,8 +539,12 @@ func analysisXdiamondConf(tmpSlice []interface{}) error {
 	if e.Base.First == 1 {
 		_, ok := c.data[e.Xdiamond.ArtifactID]
 		if ok {
-			Log.Info("配置对象" + e.Xdiamond.ArtifactID + "已存在，根据约定不予加载")
-			return nil
+			s, ok := c.source[e.Xdiamond.ArtifactID]
+			//如果配置不是来自配置中心，不允许覆盖
+			if ok && s != sourceXdaimond {
+				Log.Info("配置对象" + e.Xdiamond.ArtifactID + "已存在，根据约定不予加载")
+				return nil
+			}
 		}
 	}
 	var kvMapTmp = make(map[string]interface{})
@@ -546,7 +568,11 @@ func analysisXdiamondConf(tmpSlice []interface{}) error {
 	if err != nil {
 		return err
 	}
+	//写锁定
+	c.mutex.Lock()
 	c.data[e.Xdiamond.ArtifactID] = ConfigObject{kvMap, "", true}
+	c.source[e.Xdiamond.ArtifactID] = sourceXdaimond
+	c.mutex.Unlock()
 	return nil
 }
 

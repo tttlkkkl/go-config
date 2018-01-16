@@ -215,18 +215,20 @@ func tcpClient() {
 
 //重载连接
 func (c *client) reloadConn() {
-	conn, err := net.Dial("tcp", e.Xdiamond.Address)
-	if err != nil {
-		Log.Error("连接重载失败")
-	}
-	_ = c.conn.Close()
-	Log.Info("重载连接...")
-	c.conn = conn
-	go c.handelConn()
-	go c.receivePackets()
-	//重置计时器
-	c.heartTimmer.Reset(heartInterval)
-	c.getConfig()
+	//有问题，需要修正
+	return
+	// conn, err := net.Dial("tcp", e.Xdiamond.Address)
+	// if err != nil {
+	// 	Log.Error("连接重载失败")
+	// }
+	// _ = c.conn.Close()
+	// Log.Info("重载连接...")
+	// c.conn = conn
+	// go c.handelConn()
+	// go c.receivePackets()
+	// //重置计时器
+	// c.heartTimmer.Reset(heartInterval)
+	// c.getConfig()
 }
 
 //计时时间到仍然没有心跳信令回包，前提收到心跳信令回包时要重置计时器
@@ -299,7 +301,7 @@ func (c *client) handelResponseMessage(data []byte) {
 		if !ok {
 			Log.Error("返回结构错误:", config)
 		}
-		Log.Info("更新配置数据:", config)
+		Log.Info("更新配置数据...")
 		analysisXdiamondConf(config)
 	default:
 		Log.Error("未知的响应类型", res.Command, "消息体:", res)
