@@ -109,7 +109,7 @@ const (
 	HEARTBEAT commandType = 101
 	//GETCONFIG 获取配置指令
 	GETCONFIG commandType = 102
-	//CONFIGCHANGED 更新配置指令
+	//CONFIGCHANGED 更新配置指令，配置变更时消息类型为ONEWAY,指令类型为CONFIGCHANGED，客户端需要推送类型为CONFIGCHANGED的命令
 	CONFIGCHANGED commandType = 201
 )
 const (
@@ -122,8 +122,8 @@ const (
 )
 
 const (
-	//心跳间隔
-	heartInterval = 30 * time.Second
+	//心跳间隔,配置中心心跳间隔为15秒，为确保网络延时等特殊情况下不超时，此处设为14秒
+	heartInterval = 14 * time.Second
 	//消息协议版本
 	version uint16 = 1
 	//版本描述占长
@@ -152,67 +152,168 @@ type response struct {
 	Error   map[string]string
 }
 
+//Oneway响应体 此消息说明配置有更新
+type oneway struct {
+	Type    messageType
+	Command commandType
+	Data    map[string]interface{}
+}
+
 //认证数据
 type auth map[string]string
 
 //客户端
 type client struct {
 	conn              net.Conn
-	sendChanl         chan []byte
-	resvChanl         chan []byte
+	resvResponseChanl chan []byte
+	resvOnewayChanl   chan []byte
 	suspendHeartChanl chan int
 	stopChanl         chan int
+	//心跳计时，如果间隔时间内没有收到心跳回包，尝试重新载入连接
+	heartTimmer *time.Timer
 }
 
 //TCPClient tcp客户端
-func TCPClient() {
-
+func tcpClient() {
 	fmt.Println(REQUEST, RESPONSE, ONEWAY)
 	conn, err := net.Dial("tcp", e.Xdiamond.Address)
 	defer conn.Close()
 	if err != nil {
-		fmt.Println(err)
+		Log.Fatal("配置中心连接失败:", err)
 	}
 	client := &client{
 		conn:              conn,
-		sendChanl:         make(chan []byte, 100),
-		resvChanl:         make(chan []byte, 100),
+		resvResponseChanl: make(chan []byte, 100),
+		resvOnewayChanl:   make(chan []byte, 100),
 		suspendHeartChanl: make(chan int, 1),
 		stopChanl:         make(chan int, 1),
+		heartTimmer:       time.NewTimer(heartInterval),
 	}
+	defer client.heartTimmer.Stop()
+	//处理连接
 	go client.handelConn()
-	client.receivePackets()
+	//接收服务端数据
+	go client.receivePackets()
+	go client.heartCheck()
+	//首次获取配置
 	client.getConfig()
+	//阻塞主程序---------外部如果也写了个阻塞主程序的不知道会不会有影响
+	time.Sleep(3 * time.Second)
+	client.stopChanl <- 1
+	fmt.Println("休眠3秒")
+	select {}
+}
+
+//重载连接
+func (c *client) reloadConn() {
+	conn, err := net.Dial("tcp", e.Xdiamond.Address)
+	if err != nil {
+		Log.Error("连接重载失败")
+	}
+	_ = c.conn.Close()
+	Log.Info("重载连接...")
+	c.conn = conn
+	go c.handelConn()
+	go c.receivePackets()
+	//重置计时器
+	c.heartTimmer.Reset(heartInterval)
+	c.getConfig()
+}
+
+//计时时间到仍然没有心跳信令回包，前提收到心跳信令回包时要重置计时器
+func (c *client) heartCheck() {
+	for {
+		select {
+		case <-c.heartTimmer.C:
+			c.reloadConn()
+		}
+	}
 }
 
 //处理连接
 func (c *client) handelConn() {
 	for {
 		select {
-		//发送数据包
-		case data := <-c.sendChanl:
-			fmt.Println("发送消息", data)
-		//收到完整数据包
-		case data := <-c.resvChanl:
-			fmt.Println("收到完整数据包", data)
-		//发送心跳数据
+		//收到Oneway消息
+		case data := <-c.resvOnewayChanl:
+			c.handelOnewayMessage(data)
+		//收到Response消息
+		case data := <-c.resvResponseChanl:
+			c.handelResponseMessage(data)
+		//空闲时发送心跳数据
 		case <-time.Tick(heartInterval):
 			c.sendHeartPacket()
 		//暂停心跳数据发送
 		case <-c.suspendHeartChanl:
 		case <-c.stopChanl:
+			goto stopHandel
 		}
 	}
+stopHandel:
+	c.conn.Close()
+	Log.Info("关闭服客户端连接...")
+}
 
+//集中处理服务器返回消息
+func (c *client) handelOnewayMessage(data []byte) {
+	res := new(oneway)
+	err := json.Unmarshal(data, res)
+	Log.Debug("Response:", res)
+	if err != nil {
+		Log.Error("服务响应json数据解码失败:", err)
+	}
+	if res.Type == ONEWAY && res.Command == CONFIGCHANGED {
+		Log.Info("配置有变更,准备同步配置数据...")
+		c.getConfig()
+	}
+}
+
+//进一步处理response类型的消息
+func (c *client) handelResponseMessage(data []byte) {
+	res := new(response)
+	err := json.Unmarshal(data, res)
+	Log.Debug("Response:", res)
+	if err != nil {
+		Log.Error("服务响应json数据解码失败:", err)
+	}
+	if !res.Success {
+		Log.Error("服务器响应错误:", res.Error)
+	}
+	switch res.Command {
+	case HEARTBEAT:
+		Log.Debug("收到心跳回包...")
+		//重载心跳检测计时器
+		c.heartTimmer.Reset(heartInterval)
+	case GETCONFIG:
+		Log.Info("收到配置数据,准备更新...")
+		config, ok := res.Result["configs"]
+		if !ok {
+			Log.Error("返回结构错误:", config)
+		}
+		Log.Info("更新配置数据:", config)
+		analysisXdiamondConf(config)
+	default:
+		Log.Error("未知的响应类型", res.Command, "消息体:", res)
+	}
 }
 
 //获取配置
 func (c *client) getConfig() {
+	Log.Info("更新配置....")
 	c.sendDataPacket(newRequest(REQUEST, GETCONFIG))
+}
+
+//发送心跳包
+func (c *client) sendHeartPacket() {
+	Log.Debug("发送心跳数据包....")
+	r := newRequest(REQUEST, HEARTBEAT)
+	r.Data = make(auth)
+	c.sendDataPacket(r)
 }
 
 //发送数据包
 func (c *client) sendDataPacket(r *request) {
+	Log.Debug("准备发送数据包:", *r)
 	data, err := json.Marshal(r)
 	if err != nil {
 		Log.Error("请求结构序列化失败", err)
@@ -223,15 +324,54 @@ func (c *client) sendDataPacket(r *request) {
 	}
 }
 
-//发送心跳包
-func (c *client) sendHeartPacket() {
-	c.sendDataPacket(newRequest(REQUEST, HEARTBEAT))
-}
-
-//从服务器接收数据
+//从服务器接收数据并解包
 func (c *client) receivePackets() {
 	for {
-		readPacket(c.conn, c.resvChanl)
+		header := make([]byte, headerLen)
+		_, err := c.conn.Read(header)
+		if err != nil {
+			if err == io.EOF {
+				Log.Error("远程主机主动关闭连接:", err)
+				//重载连接
+				c.reloadConn()
+				break
+			}
+			if strings.Contains(err.Error(), "use of closed network connection") {
+				break
+			}
+			Log.Error("包头读取失败:", err)
+		}
+		vs, err := getUint16(header[:2])
+		if err != nil {
+			Log.Error(err)
+		}
+		if vs != version {
+			Log.Error("不支持的通信协议版本:", vs)
+		}
+		length, err := getUint32(header[2:6])
+		if err != nil {
+			Log.Error(err)
+		}
+		if length == 0 {
+			Log.Error("错误的消息长度:", length)
+		}
+		msgType, err := getUint16(header[6:])
+		if err != nil {
+			Log.Error(err)
+		}
+		//读取消息体
+		dataLen := length - headerTypeLen
+		data := make([]byte, dataLen)
+		_, err = c.conn.Read(data)
+		if err != nil {
+			Log.Error("消息体读取失败:", err)
+		}
+		if messageType(msgType) == ONEWAY {
+			c.resvOnewayChanl <- data
+		}
+		if messageType(msgType) == RESPONSE {
+			c.resvResponseChanl <- data
+		}
 	}
 }
 
@@ -252,10 +392,6 @@ func newRequest(msgType messageType, cmdType commandType) *request {
 	return r
 }
 
-//通信协议封装
-type protocol struct {
-}
-
 //封包
 func packet(msgType messageType, data []byte) []byte {
 	len := len(data)
@@ -266,44 +402,6 @@ func packet(msgType messageType, data []byte) []byte {
 	return append(msg, data...)
 }
 
-//从数据流解包
-func readPacket(conn net.Conn, resvChanl chan []byte) {
-	header := make([]byte, headerLen)
-	_, err := conn.Read(header)
-	if err != nil {
-		Log.Error("包头读取失败:", err)
-	}
-	vs, err := getUint16(header[:2])
-	if err != nil {
-		Log.Error(err)
-	}
-	if vs != version {
-		Log.Error("不支持的通信协议版本:", vs)
-	}
-	length, err := getUint32(header[2:6])
-	if err != nil {
-		Log.Error(err)
-	}
-	if length != uint32(headerLengthLen) {
-		Log.Error("错误的消息长度:", length)
-	}
-	msgType, err := getUint16(header[6:])
-	if err != nil {
-		Log.Error(err)
-	}
-	if msgType != uint16(headerTypeLen) {
-		Log.Error("错误的消息类型:", msgType)
-	}
-	//读取消息体
-	dataLen := length - uint32(msgType)
-	data := make([]byte, dataLen)
-	_, err = conn.Read(data)
-	if err != nil {
-		Log.Error("消息体读取失败:", err)
-	}
-	resvChanl <- data
-}
-
 //获取2个字节的Uint16数据
 func getUint16(buff []byte) (uint16, error) {
 	//这里是不是2需要进一步考证
@@ -312,8 +410,8 @@ func getUint16(buff []byte) (uint16, error) {
 	}
 	var v uint16
 	binaryBuff := bytes.NewBuffer(buff)
-	//小端序
-	err := binary.Read(binaryBuff, binary.LittleEndian, &v)
+	//大端序
+	err := binary.Read(binaryBuff, binary.BigEndian, &v)
 	if err != nil {
 		return 0, errors.New("Uint16解码失败:" + err.Error())
 	}
@@ -323,7 +421,7 @@ func getUint16(buff []byte) (uint16, error) {
 //将Unit16生成字节序
 func pactUnit16(v uint16) []byte {
 	b := make([]byte, 2)
-	binary.LittleEndian.PutUint16(b, v)
+	binary.BigEndian.PutUint16(b, v)
 	return b
 }
 
@@ -335,8 +433,8 @@ func getUint32(buff []byte) (uint32, error) {
 	}
 	var v uint32
 	binaryBuff := bytes.NewBuffer(buff)
-	//小端序
-	err := binary.Read(binaryBuff, binary.LittleEndian, &v)
+	//大端序
+	err := binary.Read(binaryBuff, binary.BigEndian, &v)
 	if err != nil {
 		return 0, errors.New("uint32解码失败:" + err.Error())
 	}
@@ -345,7 +443,7 @@ func getUint32(buff []byte) (uint32, error) {
 
 //将Unit32生成字节序
 func pactUint32(v uint32) []byte {
-	b := make([]byte, 2)
-	binary.LittleEndian.PutUint32(b, v)
+	b := make([]byte, 4)
+	binary.BigEndian.PutUint32(b, v)
 	return b
 }

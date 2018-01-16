@@ -43,7 +43,7 @@ func (l *loger) Debug(args ...interface{}) {
 
 //Info 打印提示信息日志
 func (l *loger) Info(args ...interface{}) {
-	l.info.Fatalln(args...)
+	l.info.Println(args...)
 }
 
 //Warning 打印错误日志

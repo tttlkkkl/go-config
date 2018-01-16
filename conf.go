@@ -439,7 +439,7 @@ func synXdiamondConfig() error {
 		}
 	}
 	if e.Xdiamond.ConnMode == "tcp" {
-
+		tcpClient()
 	}
 	return nil
 }
