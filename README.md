@@ -20,8 +20,8 @@ func main() {
 	x = conf.C("app")
 	//最稳定的读法是 不设置前缀，指定整个的配置值路径,像下面这样
 	fmt.Println(x.Get("servers.alpha.ip").String())
-    fmt.Println(x.Get("servers.alpha.dc").Value())
-    fmt.Println(x.Get("owner.name").String())
+    	fmt.Println(x.Get("servers.alpha.dc").Value())
+    	fmt.Println(x.Get("owner.name").String())
 	fmt.Println(x.Get("owner.organization").String())
 	fmt.Println(x.Get("owner.dobbio").Time())
 	fmt.Println(x.Get("owner.int").Int())
