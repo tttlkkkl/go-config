@@ -38,6 +38,23 @@ func httpConn() ([]byte, error) {
 
 //获取一个目录下的所有toml配置文件路径
 func getTomlFilesInDir(dir string) ([]string, error) {
+	files, err := getFilesInDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var result []string
+	for _, v := range files {
+		ext := filepath.Ext(v.Name())
+		if ext != ".toml" {
+			continue
+		}
+		result = append(result, dir+"/"+v.Name())
+	}
+	return result, nil
+}
+
+//获取文件下的目录信息
+func getFilesInDir(dir string) ([]os.FileInfo, error) {
 	dir = strings.Replace(dir, "\\", "/", -1)
 	dirInfo, err := os.OpenFile(dir, os.O_RDONLY, 0666)
 	defer dirInfo.Close()
@@ -45,7 +62,6 @@ func getTomlFilesInDir(dir string) ([]string, error) {
 		return nil, errors.New("打开目录失败:" + dir + err.Error())
 	}
 	var files []os.FileInfo
-	var result []string
 	for {
 		//每次读取50个文件名
 		r, err := dirInfo.Readdir(50)
@@ -57,14 +73,7 @@ func getTomlFilesInDir(dir string) ([]string, error) {
 		}
 		files = append(files, r...)
 	}
-	for _, v := range files {
-		ext := filepath.Ext(v.Name())
-		if ext != ".toml" {
-			continue
-		}
-		result = append(result, dir+"/"+v.Name())
-	}
-	return result, nil
+	return files, nil
 }
 
 //fileConn 从文件获取配置数据
@@ -198,9 +207,9 @@ func tcpClient() {
 	//首次获取配置
 	client.getConfig()
 	//阻塞主程序---------外部如果也写了个阻塞主程序的不知道会不会有影响
-	time.Sleep(3 * time.Second)
-	client.stopChanl <- 1
-	fmt.Println("休眠3秒")
+	// time.Sleep(3 * time.Second)
+	// client.stopChanl <- 1
+	// fmt.Println("休眠3秒")
 	select {}
 }
 

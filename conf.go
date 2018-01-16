@@ -438,6 +438,7 @@ func synXdiamondConfig() error {
 			return err
 		}
 	}
+	//启动配置中心tcp客户端
 	if e.Xdiamond.ConnMode == "tcp" {
 		tcpClient()
 	}
@@ -591,4 +592,14 @@ func setKvMap(m interface{}, keys confKeys, kvMap map[string]Result) error {
 		}
 	}
 	return nil
+}
+
+//备份配置
+func backups() {
+
+}
+
+//备份恢复
+func backupRecovery() {
+
 }
