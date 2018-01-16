@@ -131,8 +131,6 @@ type conf struct {
 //ConfigObject 配置对象
 type ConfigObject struct {
 	data map[string]Result
-	//当前选定的读取索引前缀
-	indexPrefix string
 	//标记是否存在
 	isExistence bool
 }
@@ -159,7 +157,6 @@ func (c *ConfigObject) Get(key string) *Result {
 	if key == "" {
 		return new(Result)
 	}
-	key = c.indexPrefix + "." + key
 	r, ok := c.data[key]
 	if ok {
 		return &r
@@ -175,21 +172,6 @@ func (c *ConfigObject) All() map[string]Result {
 //Exists 配置对象是否是真的从配置数据中解析得来的
 func (c *ConfigObject) Exists() bool {
 	return c.isExistence
-}
-
-//SetPrefix 设置配置读取索引前缀，此方法有助于简短优雅的读取一个配置节信息,设置成功后每次使用Get函数都会自动在key前连接这个prefix
-//为了避免某些并发情况下用此方法读取配置时出现混乱，必须在清除后才能重新设置
-func (c *ConfigObject) SetPrefix(prefix string) bool {
-	if c.indexPrefix == "" {
-		c.indexPrefix = prefix
-		return true
-	}
-	return false
-}
-
-//UnsetPrefix 清除已设置的key前缀
-func (c *ConfigObject) UnsetPrefix() {
-	c.indexPrefix = ""
 }
 
 //Exists 判断配置值是否是真实从配置文件中解析得来的
@@ -527,7 +509,7 @@ func analysisLocalConfFile(confFile string) error {
 	}
 	//写锁定
 	c.mutex.Lock()
-	c.data[file] = ConfigObject{kvMap, "", true}
+	c.data[file] = ConfigObject{kvMap, true}
 	c.source[file] = sourceFile
 	c.mutex.Unlock()
 	return nil
@@ -570,7 +552,7 @@ func analysisXdiamondConf(tmpSlice []interface{}) error {
 	}
 	//写锁定
 	c.mutex.Lock()
-	c.data[e.Xdiamond.ArtifactID] = ConfigObject{kvMap, "", true}
+	c.data[e.Xdiamond.ArtifactID] = ConfigObject{kvMap, true}
 	c.source[e.Xdiamond.ArtifactID] = sourceXdaimond
 	c.mutex.Unlock()
 	return nil

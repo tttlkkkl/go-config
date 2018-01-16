@@ -18,19 +18,10 @@ func main() {
 	}
 	//加载名为 app 的配置
 	x = conf.C("app")
-	x.SetPrefix("database")
-	fmt.Println(x.Get("server").String())
-	fmt.Println(x.Get("ports").Slice())
-	fmt.Println(x.Get("connection_max").Int())
-	fmt.Println(x.Get("enabled").Bool())
-	//注意一定要UnsetPrefix()否则下次再设置前缀将会失败,这可能是个糟糕的设计后期废除或者加以改进
-	x.UnsetPrefix()
-
 	//最稳定的读法是 不设置前缀，指定整个的配置值路径,像下面这样
 	fmt.Println(x.Get("servers.alpha.ip").String())
-        fmt.Println(x.Get("servers.alpha.dc").Value())
-    
-        fmt.Println(x.Get("owner.name").String())
+    fmt.Println(x.Get("servers.alpha.dc").Value())
+    fmt.Println(x.Get("owner.name").String())
 	fmt.Println(x.Get("owner.organization").String())
 	fmt.Println(x.Get("owner.dobbio").Time())
 	fmt.Println(x.Get("owner.int").Int())
@@ -150,13 +141,6 @@ func (c *ConfigObject) Exists() bool
 func (c *ConfigObject) Get(key string) *Result
     Get 获取一个配置结果
 
-func (c *ConfigObject) SetPrefix(prefix string) bool
-    SetPrefix
-    设置配置读取索引前缀，此方法有助于简短优雅的读取一个配置节信息,设置成功后每次使用Get函数都会自动在key前连接这个prefix
-    为了避免某些并发情况下用此方法读取配置时出现混乱，必须在清除后才能重新设置
-
-func (c *ConfigObject) UnsetPrefix()
-    UnsetPrefix 清除已设置的key前缀
 
 type Result struct {
     // contains filtered or unexported fields
