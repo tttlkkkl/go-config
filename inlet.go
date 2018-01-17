@@ -178,7 +178,7 @@ type client struct {
 	resvResponseChanl chan []byte
 	resvOnewayChanl   chan []byte
 	//客户端重载信令 0终止客户端,1重载客户端
-	stopClirntChanl chan int
+	stopClientChanl chan int
 	//心跳计时，如果间隔时间内没有收到心跳回包，尝试重新载入连接
 	heartTimmer *time.Timer
 }
@@ -194,7 +194,7 @@ func tcpClient() {
 		conn:              conn,
 		resvResponseChanl: make(chan []byte, 100),
 		resvOnewayChanl:   make(chan []byte, 100),
-		stopClirntChanl:   make(chan int, 3),
+		stopClientChanl:   make(chan int, 3),
 		heartTimmer:       time.NewTimer(clientheartInterval),
 	}
 	//处理连接
@@ -214,9 +214,9 @@ func (c *client) initClient(sign int) {
 	}
 	if sign == 0 {
 		Log.Info("关闭连接...")
-		c.stopClirntChanl <- 1
-		c.stopClirntChanl <- 1
-		c.stopClirntChanl <- 1
+		c.stopClientChanl <- 1
+		c.stopClientChanl <- 1
+		c.stopClientChanl <- 1
 		c.heartTimmer.Stop()
 		_ = c.conn.Close()
 	}
@@ -239,7 +239,7 @@ func (c *client) heartCheck() {
 		case <-c.heartTimmer.C:
 			Log.Debug("心跳超时重载...")
 			c.initClient(1)
-		case <-c.stopClirntChanl:
+		case <-c.stopClientChanl:
 			Log.Debug("退出计时器...")
 			return
 		}
@@ -250,7 +250,7 @@ func (c *client) heartCheck() {
 func (c *client) receivePackets() {
 	for {
 		select {
-		case sign := <-c.stopClirntChanl:
+		case sign := <-c.stopClientChanl:
 			//传递信号量
 			Log.Debug("退出消息协程...", sign)
 			return
@@ -270,7 +270,7 @@ func (c *client) handelConn() {
 		//收到Response消息
 		case data := <-c.resvResponseChanl:
 			c.handelResponseMessage(data)
-		case sign := <-c.stopClirntChanl:
+		case sign := <-c.stopClientChanl:
 			Log.Debug("退出处理协程...", sign)
 			return
 		//空闲时发送心跳数据
@@ -377,8 +377,8 @@ func unPacket(c *client) {
 		if err == io.EOF {
 			Log.Error("远程主机主动关闭连接:", err)
 		}
-		if strings.Contains(err.Error(), "use of closed network connection") {
-		}
+		// if strings.Contains(err.Error(), "use of closed network connection") {
+		// }
 		Log.Error("包头读取失败:", err)
 		return
 	}
