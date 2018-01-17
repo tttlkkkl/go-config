@@ -1,5 +1,5 @@
-## golang配置管理方案,本地toml配置文件加载,同时支持xdiamond接入，http和tcp实时同步。
-
+### golang配置管理方案,本地toml配置文件加载,同时支持xdiamond接入，http和tcp实时同步。
+### 使用之前请移步:[toml规范](https://github.com/toml-lang/toml/blob/master/versions/cn/toml-v0.4.0.md)
 ## 简单使用示例
 #### 引用 github.com/tttlkkkl/go-config 库编码如下
 ```golang
