@@ -104,8 +104,9 @@ type base struct {
 	//环境
 	Env string
 	//1 文件配置 2 配置中心 3配置中心缓存
-	First   int
-	Options envOption
+	First       int
+	UseXdiamond bool `toml:"use_xdiamond"`
+	Options     envOption
 }
 
 //基本环境配置可选项
@@ -113,7 +114,7 @@ type envOption struct {
 	//cachePath 配置缓存路径
 	CachePath string `toml:"cache_path"`
 	//日志路径
-	LogPath string `toml:"log_tath"`
+	LogPath string `toml:"log_path"`
 	//confPath 默认配置路径
 	ConfPath string `toml:"config_path"`
 }
@@ -349,7 +350,7 @@ func initConf() {
 	var err error
 	e, err = getEnv(envFile)
 	if err != nil {
-		Log.Fatal("初始化配置环境失败", err)
+		Log.Error("初始化配置环境失败", err)
 	}
 	c = new(conf)
 	c.data = make(map[string]ConfigObject)
@@ -360,19 +361,26 @@ func initConf() {
 	if err != nil {
 		Log.Fatal("本地配置文件加载失败", err)
 	}
-	//同步配置中心配置
-	err = synXdiamondConfig()
-	if err != nil {
-		Log.Fatal("配置中心"+e.Xdiamond.ArtifactID+"同步失败", err)
+	//默认不启用配置中心
+	if e.Base.UseXdiamond {
+		//同步配置中心配置
+		err = synXdiamondConfig()
+		if err != nil {
+			Log.Fatal("配置中心"+e.Xdiamond.ArtifactID+"同步失败", err)
+		}
 	}
 }
 
 //加载并解析本地配置文件
 func lodLocalConfigFile(confFlag string) error {
 	//环境配置指定的配置文件目录
-	confFiles, err := getTomlFilesInDir(e.Base.Options.ConfPath)
-	if err != nil {
-		return err
+	var confFiles []string
+	var err error
+	if e.Base.Options.ConfPath != "" {
+		confFiles, err = getTomlFilesInDir(e.Base.Options.ConfPath)
+		if err != nil {
+			Log.Error("无效的公共配置路径", err)
+		}
 	}
 	if confFlag != "" {
 		configFlagInfo, err := os.Stat(confFlag)
@@ -390,6 +398,9 @@ func lodLocalConfigFile(confFlag string) error {
 		} else {
 			confFiles = append(confFiles, confFlag)
 		}
+	}
+	if !e.Base.UseXdiamond && len(confFiles) == 0 {
+		Log.Error("未载入任何有效配置")
 	}
 	for _, v := range confFiles {
 		err = analysisLocalConfFile(v)
@@ -436,7 +447,7 @@ func synXdiamondConfig() error {
 	}
 	//启动配置中心tcp客户端
 	if e.Xdiamond.ConnMode == "tcp" {
-		tcpClient()
+		go tcpClient()
 	}
 	return nil
 }
@@ -444,7 +455,14 @@ func synXdiamondConfig() error {
 //获取环境配置
 func getEnv(envFile string) (*env, error) {
 	env := new(env)
-	_, err := toml.DecodeFile(envFile, env)
+	var err error
+	//环境配置可选
+	if envFile != "" {
+		_, err = toml.DecodeFile(envFile, env)
+	} else {
+		Log.Info("使用默认的本地环境配置...")
+		e.Base.UseXdiamond = false
+	}
 	if env.Base.DataDir == "" {
 		env.Base.DataDir, err = getAppRuntimeDir()
 		if err != nil {

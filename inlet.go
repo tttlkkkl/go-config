@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"net"
@@ -133,6 +132,8 @@ const (
 const (
 	//心跳间隔,配置中心心跳间隔为15秒，为确保网络延时等特殊情况下不超时，此处设为14秒
 	heartInterval = 14 * time.Second
+	//客户端收取心跳回包的间隔
+	clientheartInterval = 2 * heartInterval
 	//消息协议版本
 	version uint16 = 1
 	//版本描述占长
@@ -176,59 +177,59 @@ type client struct {
 	conn              net.Conn
 	resvResponseChanl chan []byte
 	resvOnewayChanl   chan []byte
-	suspendHeartChanl chan int
-	stopChanl         chan int
+	//客户端重载信令 0终止客户端,1重载客户端
+	stopClirntChanl chan int
 	//心跳计时，如果间隔时间内没有收到心跳回包，尝试重新载入连接
 	heartTimmer *time.Timer
 }
 
 //TCPClient tcp客户端
 func tcpClient() {
-	fmt.Println(REQUEST, RESPONSE, ONEWAY)
 	conn, err := net.Dial("tcp", e.Xdiamond.Address)
-	defer conn.Close()
 	if err != nil {
 		Log.Fatal("配置中心连接失败:", err)
 	}
+	//defer conn.Close()
 	client := &client{
 		conn:              conn,
 		resvResponseChanl: make(chan []byte, 100),
 		resvOnewayChanl:   make(chan []byte, 100),
-		suspendHeartChanl: make(chan int, 1),
-		stopChanl:         make(chan int, 1),
-		heartTimmer:       time.NewTimer(heartInterval),
+		stopClirntChanl:   make(chan int, 3),
+		heartTimmer:       time.NewTimer(clientheartInterval),
 	}
-	defer client.heartTimmer.Stop()
 	//处理连接
 	go client.handelConn()
 	//接收服务端数据
 	go client.receivePackets()
+	//心跳检测
 	go client.heartCheck()
 	//首次获取配置
 	client.getConfig()
-	//阻塞主程序---------外部如果也写了个阻塞主程序的不知道会不会有影响
-	// time.Sleep(3 * time.Second)
-	// client.stopChanl <- 1
-	// fmt.Println("休眠3秒")
-	select {}
 }
 
-//重载连接
-func (c *client) reloadConn() {
-	//有问题，需要修正
-	return
-	// conn, err := net.Dial("tcp", e.Xdiamond.Address)
-	// if err != nil {
-	// 	Log.Error("连接重载失败")
-	// }
-	// _ = c.conn.Close()
-	// Log.Info("重载连接...")
-	// c.conn = conn
-	// go c.handelConn()
-	// go c.receivePackets()
-	// //重置计时器
-	// c.heartTimmer.Reset(heartInterval)
-	// c.getConfig()
+//重载客户端
+func (c *client) initClient(sign int) {
+	if sign != 0 && sign != 1 {
+		return
+	}
+	if sign == 0 {
+		Log.Info("关闭连接...")
+		c.stopClirntChanl <- 1
+		c.stopClirntChanl <- 1
+		c.stopClirntChanl <- 1
+		c.heartTimmer.Stop()
+		_ = c.conn.Close()
+	}
+	conn, err := net.Dial("tcp", e.Xdiamond.Address)
+	if err != nil {
+		Log.Error("连接重载失败")
+	}
+	_ = c.conn.Close()
+	Log.Info("重载连接...")
+	c.conn = conn
+	//重置计时器
+	c.heartTimmer.Reset(clientheartInterval)
+	c.getConfig()
 }
 
 //计时时间到仍然没有心跳信令回包，前提收到心跳信令回包时要重置计时器
@@ -236,7 +237,25 @@ func (c *client) heartCheck() {
 	for {
 		select {
 		case <-c.heartTimmer.C:
-			c.reloadConn()
+			Log.Debug("心跳超时重载...")
+			c.initClient(1)
+		case <-c.stopClirntChanl:
+			Log.Debug("退出计时器...")
+			return
+		}
+	}
+}
+
+//从服务器接收数据并解包
+func (c *client) receivePackets() {
+	for {
+		select {
+		case sign := <-c.stopClirntChanl:
+			//传递信号量
+			Log.Debug("退出消息协程...", sign)
+			return
+		default:
+			unPacket(c)
 		}
 	}
 }
@@ -251,18 +270,14 @@ func (c *client) handelConn() {
 		//收到Response消息
 		case data := <-c.resvResponseChanl:
 			c.handelResponseMessage(data)
+		case sign := <-c.stopClirntChanl:
+			Log.Debug("退出处理协程...", sign)
+			return
 		//空闲时发送心跳数据
 		case <-time.Tick(heartInterval):
 			c.sendHeartPacket()
-		//暂停心跳数据发送
-		case <-c.suspendHeartChanl:
-		case <-c.stopChanl:
-			goto stopHandel
 		}
 	}
-stopHandel:
-	c.conn.Close()
-	Log.Info("关闭服客户端连接...")
 }
 
 //集中处理服务器返回消息
@@ -294,7 +309,7 @@ func (c *client) handelResponseMessage(data []byte) {
 	case HEARTBEAT:
 		Log.Debug("收到心跳回包...")
 		//重载心跳检测计时器
-		c.heartTimmer.Reset(heartInterval)
+		c.heartTimmer.Reset(clientheartInterval)
 	case GETCONFIG:
 		Log.Info("收到配置数据,准备更新...")
 		config, ok := res.Result["configs"]
@@ -320,6 +335,8 @@ func (c *client) sendHeartPacket() {
 	r := newRequest(REQUEST, HEARTBEAT)
 	r.Data = make(auth)
 	c.sendDataPacket(r)
+	//发送后重置计时器
+	c.heartTimmer.Reset(clientheartInterval)
 }
 
 //发送数据包
@@ -327,62 +344,11 @@ func (c *client) sendDataPacket(r *request) {
 	Log.Debug("准备发送数据包:", *r)
 	data, err := json.Marshal(r)
 	if err != nil {
-		Log.Error("请求结构序列化失败", err)
+		Log.Error("消息结构序列化失败", err)
 	}
 	_, err = c.conn.Write(packet(r.Type, data))
 	if err != nil {
 		Log.Error("消息发送失败", err)
-	}
-}
-
-//从服务器接收数据并解包
-func (c *client) receivePackets() {
-	for {
-		header := make([]byte, headerLen)
-		_, err := c.conn.Read(header)
-		if err != nil {
-			if err == io.EOF {
-				Log.Error("远程主机主动关闭连接:", err)
-				//重载连接
-				c.reloadConn()
-				break
-			}
-			if strings.Contains(err.Error(), "use of closed network connection") {
-				break
-			}
-			Log.Error("包头读取失败:", err)
-		}
-		vs, err := getUint16(header[:2])
-		if err != nil {
-			Log.Error(err)
-		}
-		if vs != version {
-			Log.Error("不支持的通信协议版本:", vs)
-		}
-		length, err := getUint32(header[2:6])
-		if err != nil {
-			Log.Error(err)
-		}
-		if length == 0 {
-			Log.Error("错误的消息长度:", length)
-		}
-		msgType, err := getUint16(header[6:])
-		if err != nil {
-			Log.Error(err)
-		}
-		//读取消息体
-		dataLen := length - headerTypeLen
-		data := make([]byte, dataLen)
-		_, err = c.conn.Read(data)
-		if err != nil {
-			Log.Error("消息体读取失败:", err)
-		}
-		if messageType(msgType) == ONEWAY {
-			c.resvOnewayChanl <- data
-		}
-		if messageType(msgType) == RESPONSE {
-			c.resvResponseChanl <- data
-		}
 	}
 }
 
@@ -401,6 +367,52 @@ func newRequest(msgType messageType, cmdType commandType) *request {
 		Data:    a,
 	}
 	return r
+}
+
+//解包
+func unPacket(c *client) {
+	header := make([]byte, headerLen)
+	_, err := c.conn.Read(header)
+	if err != nil {
+		if err == io.EOF {
+			Log.Error("远程主机主动关闭连接:", err)
+		}
+		if strings.Contains(err.Error(), "use of closed network connection") {
+		}
+		Log.Error("包头读取失败:", err)
+		return
+	}
+	vs, err := getUint16(header[:2])
+	if err != nil {
+		Log.Error(err)
+	}
+	if vs != version {
+		Log.Error("不支持的通信协议版本:", vs)
+	}
+	length, err := getUint32(header[2:6])
+	if err != nil {
+		Log.Error(err)
+	}
+	if length == 0 {
+		Log.Error("错误的消息长度:", length)
+	}
+	msgType, err := getUint16(header[6:])
+	if err != nil {
+		Log.Error(err)
+	}
+	//读取消息体
+	dataLen := length - headerTypeLen
+	data := make([]byte, dataLen)
+	_, err = c.conn.Read(data)
+	if err != nil {
+		Log.Error("消息体读取失败:", err)
+	}
+	if messageType(msgType) == ONEWAY {
+		c.resvOnewayChanl <- data
+	}
+	if messageType(msgType) == RESPONSE {
+		c.resvResponseChanl <- data
+	}
 }
 
 //封包
