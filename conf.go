@@ -182,7 +182,7 @@ func (r *Result) Exists() bool {
 
 //Value 返回原解析配置值而不进行任何转化
 func (r *Result) Value() interface{} {
-	return r.Value
+	return r.value
 }
 
 //String 以字符串返回配置值
@@ -201,6 +201,25 @@ func (r *Result) Slice() []interface{} {
 	}
 	v := make([]interface{}, 0)
 	return append(v, r.value)
+}
+
+//SliceMap 断言返回类似以下配置
+/**
+[[crm.slave]]
+	addr = "localhost:6379"
+    password = ""
+    db = 0
+[[crm.slave]]
+	addr = "localhost:6379"
+    password = ""
+    db = 0
+**/
+func (r *Result) SliceMap() []map[string]interface{} {
+	v, ok := r.value.([]map[string]interface{})
+	if !ok {
+		return make([]map[string]interface{}, 0, 0)
+	}
+	return v
 }
 
 //Time 以时间格式返回配置值，时间格式依照toml以RFC3339因特网标准时间为准
@@ -599,7 +618,7 @@ func setKvMap(m interface{}, keys confKeys, kvMap map[string]Result) error {
 		switch v.(type) {
 		case map[string]interface{}:
 			_ = setKvMap(v, keyNodes, kvMap)
-		case []interface{}:
+		case []interface{}, []map[string]interface{}, [][]interface{}, [][]map[string]interface{}:
 			kvMap[keyNodes.toString()] = Result{Array, v, true}
 		case string:
 			kvMap[keyNodes.toString()] = Result{String, v, true}
@@ -618,14 +637,4 @@ func setKvMap(m interface{}, keys confKeys, kvMap map[string]Result) error {
 		}
 	}
 	return nil
-}
-
-//备份配置
-func backups() {
-
-}
-
-//备份恢复
-func backupRecovery() {
-
 }
