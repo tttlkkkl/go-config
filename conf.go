@@ -203,6 +203,25 @@ func (r *Result) Slice() []interface{} {
 	return append(v, r.value)
 }
 
+//SliceMap 断言返回类似以下配置
+/**
+[[crm.slave]]
+	addr = "localhost:6379"
+    password = ""
+    db = 0
+[[crm.slave]]
+	addr = "localhost:6379"
+    password = ""
+    db = 0
+**/
+func (r *Result) SliceMap() []map[string]interface{} {
+	v, ok := r.value.([]map[string]interface{})
+	if !ok {
+		return make([]map[string]interface{}, 0, 0)
+	}
+	return v
+}
+
 //Time 以时间格式返回配置值，时间格式依照toml以RFC3339因特网标准时间为准
 func (r *Result) Time() time.Time {
 	if r.dataType == Time {
