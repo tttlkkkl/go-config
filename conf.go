@@ -182,7 +182,7 @@ func (r *Result) Exists() bool {
 
 //Value 返回原解析配置值而不进行任何转化
 func (r *Result) Value() interface{} {
-	return r.Value
+	return r.value
 }
 
 //String 以字符串返回配置值
@@ -599,7 +599,7 @@ func setKvMap(m interface{}, keys confKeys, kvMap map[string]Result) error {
 		switch v.(type) {
 		case map[string]interface{}:
 			_ = setKvMap(v, keyNodes, kvMap)
-		case []interface{}:
+		case []interface{}, []map[string]interface{}, [][]interface{}, [][]map[string]interface{}:
 			kvMap[keyNodes.toString()] = Result{Array, v, true}
 		case string:
 			kvMap[keyNodes.toString()] = Result{String, v, true}
@@ -618,14 +618,4 @@ func setKvMap(m interface{}, keys confKeys, kvMap map[string]Result) error {
 		}
 	}
 	return nil
-}
-
-//备份配置
-func backups() {
-
-}
-
-//备份恢复
-func backupRecovery() {
-
 }
