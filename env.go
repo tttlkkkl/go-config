@@ -2,7 +2,6 @@ package conf
 
 import (
 	"errors"
-	"log"
 	"os"
 	"runtime"
 	"strings"
@@ -23,14 +22,6 @@ type env struct {
 	confDir string
 	//配置环境
 	env string
-}
-
-func init() {
-	var err error
-	e, err = newEnv()
-	if err != nil {
-		log.Fatal(err)
-	}
 }
 
 // newEnv 初始化基本环境信息

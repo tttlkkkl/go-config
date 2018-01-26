@@ -21,12 +21,6 @@ type loger struct {
 	fatal *log.Logger
 }
 
-func init() {
-	if Log == nil {
-		logInit()
-	}
-}
-
 func logInit() {
 	Log = new(loger)
 	Log.debug = log.New(os.Stdout, "DEBUG: ", log.Ldate|log.Ltime|log.Lshortfile)

@@ -17,31 +17,21 @@ type xdiamondHTTP struct {
 	xdiamond
 }
 
+// 实例化配置中心http实例
+func newXdiamondHTTP() *xdiamondHTTP {
+	xdiamond := newXdiamond()
+	return &xdiamondHTTP{xdiamond: *xdiamond}
+}
+
 // 配置中心配置解析
 func (x xdiamondHTTP) analysisConfig(fileName string) (map[string]interface{}, error) {
-	var kvMapTmp = make(map[string]interface{})
 	var err error
 	var tmpSlice []interface{}
-	tmpSlice, err = x.synConfigData("", "")
+	tmpSlice, err = x.synConfigData(x.getObjectAndVersion(fileName))
 	if err != nil {
 		return nil, err
 	}
-	for _, v := range tmpSlice {
-		val, ok := x.getValue("config", v)
-		if !ok {
-			continue
-		}
-		key, keyOk := x.getValue("key", val)
-		value, valueOk := x.getValue("value", val)
-		if keyOk && valueOk {
-			key, ok := key.(string)
-			if !ok {
-				continue
-			}
-			kvMapTmp[key] = value
-		}
-	}
-	return kvMapTmp, nil
+	return x.extractKv(tmpSlice), nil
 }
 
 // 同步配置中心数据
@@ -72,7 +62,7 @@ func (x *xdiamondHTTP) synConfigData(object string, version string) ([]interface
 	return tmpSlice, nil
 }
 
-//httpConn 从配置中心拉取数据
+// httpPull 从配置中心拉取数据
 func (x *xdiamondHTTP) httpPull(object string, version string) ([]byte, error) {
 	var response *http.Response
 	var err error
@@ -94,7 +84,7 @@ func (x *xdiamondHTTP) getFullURL(object string, version string) string {
 	if version == "" {
 		version = x.version
 	}
-	url := "http://" + x.Address + uri
+	url := "http://" + x.HTTPAddress + uri
 	url += "?groupId=" + x.GroupID + "&artifactId=" + object + "&version=" + version + "&profile=" + x.profile + "&secretKey=" + x.SecretKey + "&format=" + format
 	return url
 }

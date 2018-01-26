@@ -10,6 +10,10 @@ import (
 type localFile struct {
 }
 
+func newLocalFile() *localFile {
+	return new(localFile)
+}
+
 // 解析本地配置文件
 func (l *localFile) analysisConfig(fileName string) (map[string]interface{}, error) {
 	var data = make(map[string]interface{})
