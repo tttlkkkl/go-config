@@ -27,7 +27,7 @@ type Result struct {
 
 //Get 获取一个配置结果
 func (c *ConfigObject) Get(key string, defaultValue interface{}) *Result {
-	if key == "" && defaultValue == nil {
+	if key == "" && (defaultValue == nil) {
 		return new(Result)
 	}
 	r, ok := c.data[key]

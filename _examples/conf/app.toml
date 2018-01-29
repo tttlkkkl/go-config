@@ -1,13 +1,13 @@
 title = "TOML Example"
 
 [owner]
-name = "Tom Preston-Werner"
-organization = "GitHub"
-bio = "GitHub Cofounder & CEO\nLikes tater tots and beer."
-dob = 2018-05-27T07:32:00Z # RFC3339因特网标准时间
-int = 1
-float =1.1
-bool = true
+  name = "Tom Preston-Werner"
+  organization = "GitHub"
+  bio = "GitHub Cofounder & CEO\nLikes tater tots and beer."
+  dob = 2018-05-27T07:32:00Z # RFC3339因特网标准时间
+  int = 1
+  float =1.1
+  bool = true
 #主库1
 [[database.master]]
   server = "192.168.1.1"
@@ -47,12 +47,38 @@ bool = true
   [servers.beta]
   ip = "10.0.0.2"
   dc = "eqdc10"
-
+# 表嵌套
 [clients]
-data = [ ["gamma", "delta"], [1, 2] ] # just an update to make sure parsers support it
+  data = [ ["gamma", "delta"], [1, 2] ] 
 
-# Line breaks are OK when inside arrays
+# 数组
 hosts = [
   "alpha",
   "omega"
 ]
+
+[[default.master]]
+	addr = "localhost:6379"
+	password = ""
+	db = 0
+[[default.slave]]
+	addr = "localhost:6379"
+    password = ""
+    db = 0
+[[default.slave]]
+	addr = "localhost:6379"
+    password = ""
+    db = 0
+
+[[crm.master]]
+	addr = "localhost:6379"
+	password = ""
+	db = 0
+[[crm.slave]]
+	addr = "localhost:6379"
+    password = ""
+    db = 0
+[[crm.slave]]
+	addr = "localhost:6379"
+    password = ""
+    db = 0
