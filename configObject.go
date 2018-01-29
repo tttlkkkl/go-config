@@ -11,8 +11,10 @@ type ConfigObject struct {
 	data map[string]Result
 	//标记是否存在
 	isExistence bool
-	//存储配置来源
+	//配置来源
 	source Source
+	//fileName 配置文件标志
+	fileName string
 }
 
 //Result 配置数据解析结果
@@ -24,15 +26,16 @@ type Result struct {
 }
 
 //Get 获取一个配置结果
-func (c *ConfigObject) Get(key string) *Result {
-	if key == "" {
+func (c *ConfigObject) Get(key string, defaultValue interface{}) *Result {
+	if key == "" && defaultValue == nil {
 		return new(Result)
 	}
 	r, ok := c.data[key]
 	if ok {
 		return &r
 	}
-	return new(Result)
+	r = genResult(defaultValue)
+	return &r
 }
 
 //All 获取全部配置
@@ -40,12 +43,12 @@ func (c *ConfigObject) All() map[string]Result {
 	return c.data
 }
 
-//Exists 配置对象是否是真的从配置数据中解析得来的
+// Exists 判断是否存在此配置对象
 func (c *ConfigObject) Exists() bool {
 	return c.isExistence
 }
 
-//Exists 判断配置值是否是真实从配置文件中解析得来的
+// Exists 判断是否存在此配置值
 func (r *Result) Exists() bool {
 	return r.isExistence
 }

@@ -10,8 +10,6 @@ import (
 type xdiamond struct {
 	//groupId 对应groupId
 	GroupID string `toml:"group_id"`
-	//artifactId 对应project
-	artifactID string
 	//string 对应环境 取基础配置env
 	profile string
 	//version 配置版本,指project的版本
