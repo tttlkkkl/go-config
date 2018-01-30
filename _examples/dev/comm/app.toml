@@ -1,6 +1,6 @@
 title = "TOML Example"
-
-[owner]
+path="/xxx/ccc"
+[base]
   name = "Tom Preston-Werner"
   organization = "GitHub"
   bio = "GitHub Cofounder & CEO\nLikes tater tots and beer."

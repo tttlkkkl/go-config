@@ -10,6 +10,7 @@
 - 配置标志：唯一描述一个配置对象的字符串。对本一个地配置文件来说配置标志=相对目录名+"."+文件名(不包括后缀),对配置中心而言配置标志=project+"."+version。
 - 配置来源:标识一个配置对象来源。通过内置常量来定义，目前有本地文件、配置中心HTTP、配置中心TCP、本地备份（这个暂时是不受支持的）。
 - 结果对象:描述一个配置值。结果对象提供基本类型转换。
+- 所有配置最终都以kv形式获取，用"."来
 ##### 使用(请确保已引入conf包,以下说明均基于假设当前配置环境为`dev`):
 ###### 本地配置文件支持(假设当前配置路径为`/var/web_go_config`):
 - 配置文件格式:toml。使用之前请移步:[toml规范](https://github.com/toml-lang/toml/blob/master/versions/cn/toml-v0.4.0.md)。
@@ -108,4 +109,89 @@ const (
     // SourceBackups 配置来源，本地备份
     SourceBackups
 )
+```
+
+- 简单使用示例:
+假设名为"app.toml"的配置文件位于公共配置目录，其配置内容如下:
+```toml
+path:"/etc/config"
+[base]
+  name = "Tom Preston-Werner"
+  organization = "GitHub"
+  bio = "GitHub Cofounder & CEO\nLikes tater tots and beer."
+  dob = 2018-05-27T07:32:00Z # RFC3339因特网标准时间
+  int = 1
+  float =1.1
+  bool = true
+[[default.master]]
+	addr = "localhost:6379"
+	password = ""
+	db = 0
+[[default.slave]]
+	addr = "localhost:6379"
+    password = ""
+    db = 0
+[[default.slave]]
+	addr = "localhost:6379"
+    password = ""
+    db = 0
+```
+示例(注意:包的引入仅作为参考，请安实际进行调整):
+
+```golang
+package main
+
+import (
+	"conf"
+	"fmt"
+)
+
+func main() {
+	//实例化一个配置对象
+	//配置中心
+	// c := conf.NewConfig("golang-test.1.0", conf.SourceXdaHTTP)
+
+	//设置一个配置变更回调
+	callback := new(configChange)
+	conf.SetCallbackFunc(callback)
+	c := conf.NewConfig("comm.app", conf.SourceFile)
+	//获取全部
+	for k, v := range c.All() {
+		fmt.Printf("key:%v , value:%v", k, v.Value())
+	}
+	//取得path的值，设默认值
+	a1 := c.Get("path").Default("/www/config").String()
+	fmt.Println("path:", a1)
+	//取得base配置节下的int的值，设默认值
+	a2 := c.Get("base.int").Default(1).Int()
+	fmt.Println("base.int:", a2)
+	//取得base配置节下dob的值，不设默认值
+	a3 := c.Get("base.dob").Time()
+	fmt.Println("base.dob:", a3)
+	//判断一个配置值是否存在
+	if !c.Get("no").Exists() {
+		fmt.Println("配置no不存在!")
+	}
+	if c.Get("default.master").Exists() {
+		fmt.Println("配置default.master存在!")
+	}
+	//获取嵌套表default.slave内容
+	a4 := c.Get("default.slave").SliceMap()
+	fmt.Println("default.slave:", a4)
+	fmt.Println("default.slave子节点数量:", len(a4))
+	//或者可以这样做--举一反三，如果提供的基本类型转换无法满足需求时可以获取原始值自行断言处理
+	a5 := c.Get("default.slave").Value()
+	a5t, ok := a5.([]map[string]interface{})
+	if ok {
+		fmt.Println("default.slave:", a5t)
+		fmt.Println("default.slave子节点数量:", len(a5t))
+	}
+
+}
+
+type configChange struct{}
+
+func (c *configChange) CallbackHandel(fileName string, co *conf.ConfigObject) {
+	fmt.Println("配置对象：", fileName, "有变更")
+}
 ```

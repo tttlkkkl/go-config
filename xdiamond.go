@@ -77,6 +77,7 @@ func (x *xdiamond) getObjectAndVersion(fileName string) (objectName string, vers
 	if index != -1 {
 		objectName = fileName[:index]
 		version = fileName[index+1:]
+		return objectName, version
 	}
 	objectName = fileName
 	version = x.version
