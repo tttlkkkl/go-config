@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+//全局环境
+var e *env
 var c *conf
 
 // Type 自定义类型，用于归纳基本数据类型

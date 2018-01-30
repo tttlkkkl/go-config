@@ -1,13 +1,3 @@
-# 配置中心环境定义
-
-# 基本配置
-[base]
-    # 配置文件路径
-    conf_dir="/mnt/share/default/src/conf/_examples/"
-    #环境
-    env="dev"
-# 配置中心配置
-[xdiamond]
 	#groupId 对应groupId
 	group_id = "web"
 	#secretKey auth认证key 默认 ""

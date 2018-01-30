@@ -1,0 +1,84 @@
+title = "TOML Example"
+
+[owner]
+  name = "Tom Preston-Werner"
+  organization = "GitHub"
+  bio = "GitHub Cofounder & CEO\nLikes tater tots and beer."
+  dob = 2018-05-27T07:32:00Z # RFC3339因特网标准时间
+  int = 1
+  float =1.1
+  bool = true
+#主库1
+[[database.master]]
+  server = "192.168.1.1"
+  ports = [ 8001, 8003, 8002 ]
+  connection_max = 5000
+  enabled = true
+#主库2
+[[database.master]]
+  server = "192.168.1.1"
+  ports = [ 8001, 8003, 8002 ]
+  connection_max = 5000
+  enabled = true
+#从库1
+[[database.slaves]]
+  server = "192.168.1.1"
+  ports = [ 8001, 8003, 8002 ]
+  connection_max = 5000
+  enabled = true
+#从库2
+[[database.slaves]]
+  server = "192.168.1.1"
+  ports = [ 8001, 8003, 8002 ]
+  connection_max = 5000
+  enabled = true
+#从库3
+[[database.slaves]]
+  server = "192.168.1.1"
+  ports = [ 8001, 8003, 8002 ]
+  connection_max = 5000
+  enabled = true
+
+[servers]
+  [servers.alpha]
+  ip = "10.0.0.1"
+  dc = "eqdc10"
+
+  [servers.beta]
+  ip = "10.0.0.2"
+  dc = "eqdc10"
+# 表嵌套
+[clients]
+  data = [ ["gamma", "delta"], [1, 2] ] 
+
+# 数组
+hosts = [
+  "alpha",
+  "omega"
+]
+
+[[default.master]]
+	addr = "localhost:6379"
+	password = ""
+	db = 0
+[[default.slave]]
+	addr = "localhost:6379"
+    password = ""
+    db = 0
+[[default.slave]]
+	addr = "localhost:6379"
+    password = ""
+    db = 0
+
+[[crm.master]]
+	addr = "localhost:6379"
+	password = ""
+	db = 0
+[[crm.slave]]
+	addr = "localhost:6379"
+    password = ""
+    db = 0
+[[crm.slave]]
+	addr = "localhost:6379"
+    password = ""
+    db = 0

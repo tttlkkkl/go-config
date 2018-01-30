@@ -7,9 +7,6 @@ import (
 	"strings"
 )
 
-//全局环境
-var e *env
-
 const (
 	// envConf 定义配置环境比如 dev test product
 	envConf       = "WEB_GO_CONFIG_ENV"
@@ -26,14 +23,14 @@ type env struct {
 
 // newEnv 初始化基本环境信息
 func newEnv() (*env, error) {
-	e := new(env)
-	e.env = getEnv()
+	v := new(env)
+	v.env = getEnv()
 	var err error
-	e.confDir, err = getConfigDir()
+	v.confDir, err = getConfigDir()
 	if err != nil {
 		return nil, err
 	}
-	return e, nil
+	return v, nil
 }
 
 // getEnv 获取配置环境
@@ -66,5 +63,6 @@ func getConfigDir() (string, error) {
 	if !dirInfo.IsDir() {
 		return "", errors.New(confDir + ":不是一个有效的目录")
 	}
+	confDir = confDir + getEnv() + "/"
 	return confDir, nil
 }

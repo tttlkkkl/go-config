@@ -26,19 +26,19 @@ type Result struct {
 }
 
 //Get 获取一个配置结果
-func (c *ConfigObject) Get(key string, defaultValue interface{}) *Result {
-	if key == "" && (defaultValue == nil) {
+func (c *ConfigObject) Get(key string) *Result {
+	if key == "" {
 		return new(Result)
 	}
 	r, ok := c.data[key]
 	if ok {
 		return &r
 	}
-	r = genResult(defaultValue)
-	return &r
+	return new(Result)
+
 }
 
-//All 获取全部配置
+// All 获取全部配置
 func (c *ConfigObject) All() map[string]Result {
 	return c.data
 }
@@ -48,22 +48,31 @@ func (c *ConfigObject) Exists() bool {
 	return c.isExistence
 }
 
+// Default 当配置不存在时以此方法设置的默认值返回
+func (r *Result) Default(defaultValue interface{}) *Result {
+	if !r.isExistence {
+		rTmp := genResult(defaultValue)
+		return &rTmp
+	}
+	return r
+}
+
 // Exists 判断是否存在此配置值
 func (r *Result) Exists() bool {
 	return r.isExistence
 }
 
-//Value 返回原解析配置值而不进行任何转化
+// Value 返回原解析配置值而不进行任何转化
 func (r *Result) Value() interface{} {
 	return r.value
 }
 
-//String 以字符串返回配置值
+// String 以字符串返回配置值
 func (r *Result) String() string {
 	return fmt.Sprintf("%v", r.value)
 }
 
-//Slice 以切片返回配置值在toml中 类似 k=[1,2]这样配置会以切片返回(xdiamond 配置中心不支持这种配置)，除此之外返回包含配置值的切片
+// Slice 以切片返回配置值在toml中 类似 k=[1,2]这样配置会以切片返回(xdiamond 配置中心不支持这种配置)，除此之外返回包含配置值的切片
 func (r *Result) Slice() []interface{} {
 	if r.dataType == Array {
 		v, ok := r.value.([]interface{})
@@ -76,7 +85,7 @@ func (r *Result) Slice() []interface{} {
 	return append(v, r.value)
 }
 
-//SliceMap 断言返回类似以下配置
+// SliceMap 断言返回类似以下配置
 /**
 [[crm.slave]]
 	addr = "localhost:6379"
@@ -95,7 +104,7 @@ func (r *Result) SliceMap() []map[string]interface{} {
 	return v
 }
 
-//Time 以时间格式返回配置值，时间格式依照toml以RFC3339因特网标准时间为准
+// Time 以时间格式返回配置值，时间格式依照toml以RFC3339因特网标准时间为准
 func (r *Result) Time() time.Time {
 	if r.dataType == Time {
 		v, ok := r.value.(time.Time)
@@ -115,13 +124,13 @@ func (r *Result) Time() time.Time {
 	return time.Unix(0, 0)
 }
 
-//ToDateTime 尝试以Y-m-d h:i:s的格式返回时间配置值字符串
+// ToDateTime 尝试以Y-m-d h:i:s的格式返回时间配置值字符串
 func (r *Result) ToDateTime() string {
 	timeLayout := "2006-01-02 15:04:05"
 	return r.Time().Format(timeLayout)
 }
 
-//Bool 以布尔型返回配置值
+// Bool 以布尔型返回配置值
 func (r *Result) Bool() bool {
 	switch r.dataType {
 	case String:
@@ -165,7 +174,7 @@ func (r *Result) Bool() bool {
 	}
 }
 
-//Float 以浮点类型返回配置值
+// Float 以浮点类型返回配置值
 func (r *Result) Float() float64 {
 	switch r.dataType {
 	case String:
@@ -198,7 +207,7 @@ func (r *Result) Float() float64 {
 	return float64(0)
 }
 
-//Int 以int64类型返回配置值
+// Int 以int64类型返回配置值
 func (r *Result) Int() int64 {
 	switch r.dataType {
 	case String:
@@ -231,7 +240,7 @@ func (r *Result) Int() int64 {
 	return int64(0)
 }
 
-//Uint 以uint64返回配置值，注意：负数转无符号数得到的值可能不是你预期的
+// Uint 以uint64返回配置值，注意：负数转无符号数得到的值可能不是你预期的
 func (r *Result) Uint() uint64 {
 	return uint64(r.Int())
 }
