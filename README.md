@@ -114,7 +114,7 @@ const (
 - 简单使用示例:
 假设名为"app.toml"的配置文件位于公共配置目录，其配置内容如下:
 ```toml
-path:"/etc/config"
+path="/etc/config"
 [base]
   name = "Tom Preston-Werner"
   organization = "GitHub"
