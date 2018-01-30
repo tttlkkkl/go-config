@@ -155,10 +155,6 @@ func main() {
 	callback := new(configChange)
 	conf.SetCallbackFunc(callback)
 	c := conf.NewConfig("comm.app", conf.SourceFile)
-	//获取全部
-	for k, v := range c.All() {
-		fmt.Printf("key:%v , value:%v", k, v.Value())
-	}
 	//取得path的值，设默认值
 	a1 := c.Get("path").Default("/www/config").String()
 	fmt.Println("path:", a1)
@@ -192,6 +188,10 @@ func main() {
 type configChange struct{}
 
 func (c *configChange) CallbackHandel(fileName string, co *conf.ConfigObject) {
-	fmt.Println("配置对象：", fileName, "有变更")
+	fmt.Println("配置对象：", fileName, "有变更...")
+	//打印全部配置内容
+	for k, v := range co.All() {
+		fmt.Printf("key:%v , value:%v", k, v.Value())
+	}
 }
 ```
