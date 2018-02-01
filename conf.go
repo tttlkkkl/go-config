@@ -1,312 +1,197 @@
+// Package conf golang微服务配置管理组件，以toml为配置格式，同时接入xdiamond配置中心。力求实现微服务配置集中管理。
 package conf
 
 import (
-	"encoding/json"
-	"io"
-	"net"
+	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
 )
 
-//command 指令类型
-type commandType int64
+//全局环境
+var e *env
+var c *conf
 
-//message 消息类型
-type messageType uint16
+// Type 自定义类型，用于归纳基本数据类型
+type confType int
 
 const (
-	//HEARTBEAT 心跳信令
-	HEARTBEAT commandType = 101
-	//GETCONFIG 获取配置指令
-	GETCONFIG commandType = 102
-	//CONFIGCHANGED 更新配置指令，配置变更时消息类型为ONEWAY,指令类型为CONFIGCHANGED，客户端需要推送类型为CONFIGCHANGED的命令
-	CONFIGCHANGED commandType = 201
+	//String 字符串类型
+	String confType = iota
+	//Int 有符号整型 int32 也表示Unicode码点即rune类型
+	Int
+	//Uint 无符号整型uint8也表示字符型 byte类型
+	Uint
+	//Float 浮点数
+	Float
+	//Bool 布尔类型
+	Bool
+	//Array 数组  []interface{}
+	Array
+	//Time 时间类型
+	Time
+	//Undefined 未定义的类型
+	Undefined
 )
+
+// Source 配置来源
+type Source int
+
 const (
-	//REQUEST 请求类型
-	REQUEST messageType = iota + 1
-	//RESPONSE 响应类型
-	RESPONSE
-	//ONEWAY 服务端通知客户端配置更新，客户端无需响应，可直接拉取配置
-	ONEWAY
-)
-const (
-	//心跳间隔,配置中心心跳间隔为15秒，为确保网络延时等特殊情况下不超时，此处设为14秒
-	heartInterval = 14 * time.Second
-	//客户端收取心跳回包的间隔
-	clientheartInterval = 2 * heartInterval
-	//重连尝试次数
-	retryConnCount = 20
-	//尝试重连间隔
-	retryConnInterval = 5 * time.Second
+	// SourceFile 配置源，文件
+	SourceFile Source = iota + 1
+	// SourceXdaHTTP 配置源，配置中心http
+	SourceXdaHTTP
+	// SourceXdaTCP 配置源，配置中心TCP
+	SourceXdaTCP
+	// SourceBackups 配置来源，本地备份
+	SourceBackups
 )
 
-// xdiamondTCP 配置中心tcp同步
-type xdiamondTCP struct {
-	xdiamond
-	client
-	// 暂存 "文件"信息
-	fileName string
+//配置数据存储结构
+type conf struct {
+	//配置数据
+	data map[string]ConfigObject
+	//写锁定，后续如果加入热更新写的时候不允许读操作避免大并发情况下读取到不完整数据
+	mutex *sync.RWMutex
+	//是否将数据缓存在内存中
+	isCache bool
+	// 回调函数
+	handel CallbackHandel
 }
 
-//请求体
-type request struct {
-	Type    messageType
-	Command commandType
-	Data    auth
+// CallbackHandel 当配置有更新时调用此方法
+type CallbackHandel interface {
+	CallbackHandel(fileName string, co *ConfigObject)
 }
 
-//响应体
-type response struct {
-	Type    messageType
-	Command commandType
-	Success bool
-	Result  map[string][]interface{}
-	Error   map[string]string
+//解析统一接口
+type analysis interface {
+	analysisConfig(fileName string) (map[string]interface{}, error)
 }
 
-//Oneway响应体 此消息说明配置有更新
-type oneway struct {
-	Type    messageType
-	Command commandType
-	Data    map[string]interface{}
+//confKeys 自定义类型key
+type confKeys []string
+
+//String 返回key字符串
+func (k confKeys) toString() string {
+	return strings.Join(k, ".")
 }
 
-//认证数据
-type auth map[string]string
-
-//客户端
-type client struct {
-	conn            net.Conn
-	confChangeChanl chan []interface{}
-	// 客户端重载信令 0终止客户端,1重载客户端
-	stopClientChanl chan int
-	// 心跳计时，如果间隔时间内没有收到心跳回包，尝试重新载入连接
-	heartTimmer *time.Timer
-}
-
-// 实例化配置中心TCP客户端
-func newXdiamondTCP() *xdiamondTCP {
-	xdiamond := newXdiamond()
-	TCPClient := newClient(xdiamond.TCPAddress)
-	return &xdiamondTCP{xdiamond: *xdiamond, client: *TCPClient}
-}
-
-// 获取并解析用户中心配置信息
-func (x *xdiamondTCP) analysisConfig(fileName string) (map[string]interface{}, error) {
-	x.start()
-	x.fileName = fileName
-	//阻塞等待返回
-	data := <-x.confChangeChanl
-	//启动go携程消费无缓冲通道
-	go x.synConfigData()
-	return x.extractKv(data), nil
-}
-
-// 同步配置信息
-func (x *xdiamondTCP) synConfigData() {
-	for {
-		select {
-		case data := <-x.confChangeChanl:
-			_ = c.genConfigObject(x.fileName, SourceXdaTCP, x.extractKv(data))
-		}
-	}
-}
-
-// 实例化tcp客户端
-func newClient(addr string) *client {
-	conn, err := net.Dial("tcp", addr)
+// 初始化必要的变量
+func init() {
+	var err error
+	logInit()
+	e, err = newEnv()
 	if err != nil {
-		Log.Fatal("配置中心连接失败:", err)
+		Log.Fatal(err)
 	}
-	//defer conn.Close()
-	return &client{
-		conn:            conn,
-		confChangeChanl: make(chan []interface{}),
-		stopClientChanl: make(chan int),
-		heartTimmer:     time.NewTimer(clientheartInterval),
+	c = &conf{
+		data:    make(map[string]ConfigObject),
+		mutex:   new(sync.RWMutex),
+		isCache: true,
 	}
 }
 
-// 启动客户端
-func (x *xdiamondTCP) start() {
-	//处理连接
-	go x.handelConn()
-	//心跳检测
-	go x.heartCheck()
-	//首次获取配置
-	x.getConfig()
+// NewConfig 实例化一个配置对象
+func NewConfig(fileName string, source Source) *ConfigObject {
+	switch source {
+	case SourceFile:
+		return c.getConfigObject(fileName, source, newLocalFile())
+	case SourceXdaHTTP:
+		return c.getConfigObject(fileName, source, newXdiamondHTTP())
+	case SourceXdaTCP:
+		return c.getConfigObject(fileName, source, newXdiamondTCP())
+	case SourceBackups:
+		return new(ConfigObject)
+	}
+	return new(ConfigObject)
 }
 
-// 重载连接
-func (x *xdiamondTCP) reload() {
-	// 暂时停止处理协程
-	x.stopClientChanl <- 1
-	x.stopClientChanl <- 1
+// DisableCache 禁止在内存中缓冲配置数据
+func DisableCache() {
+	c.isCache = false
+}
 
-	_ = x.conn.Close()
-	var wg sync.WaitGroup
-	wg.Add(retryConnCount)
-	t := time.NewTimer(retryConnInterval)
-	stop := make(chan int, 1)
-	go func() {
-		for {
-			select {
-			case <-t.C:
-				Log.Info("尝试重载连接...")
-				conn, err := net.Dial("tcp", x.TCPAddress)
-				wg.Done()
-				if err != nil {
-					Log.Error("连接重载失败...")
-					continue
-				}
-				x.conn = conn
-			case <-stop:
-				wg.Add(0)
-				return
-			}
+// SetCallbackFunc 设置回调函数
+func SetCallbackFunc(handel CallbackHandel) {
+	c.handel = handel
+}
+
+// getConfigObject 获取一个配置对象
+func (c *conf) getConfigObject(fileName string, source Source, obj analysis) *ConfigObject {
+	if c.isCache || source == SourceXdaTCP {
+		object, ok := c.data[fileName]
+		if ok {
+			return &object
 		}
-	}()
-	wg.Wait()
-	Log.Info("重载连接成功...")
-	//重置计时器
-	x.heartTimmer.Reset(clientheartInterval)
-	x.start()
+	}
+	tmp, err := obj.analysisConfig(fileName)
+	if err != nil {
+		Log.Fatal(err)
+	}
+	return c.genConfigObject(fileName, source, tmp)
 }
 
-//处理连接
-func (x *xdiamondTCP) handelConn() {
-	for {
-		select {
-		case sign := <-x.stopClientChanl:
-			Log.Debug("退出处理协程...", sign)
-			return
-		//空闲时发送心跳数据
-		case <-time.Tick(heartInterval):
-			x.sendHeartPacket()
+// 生成配置对象
+func (c *conf) genConfigObject(fileName string, source Source, confMap map[string]interface{}) *ConfigObject {
+	kvMap := make(map[string]Result)
+	err := setKvMap(confMap, make(confKeys, 0), kvMap)
+	if err != nil {
+		Log.Fatal(err)
+	}
+	co := ConfigObject{kvMap, true, source, fileName}
+	if c.isCache {
+		//写锁定
+		c.mutex.Lock()
+		c.data[fileName] = co
+		c.mutex.Unlock()
+	}
+	//如果有设置回调函数，调用之
+	if c.handel != nil {
+		c.handel.CallbackHandel(fileName, &co)
+	}
+	return &co
+}
+
+// setKvMap 递归设置一个kvMap
+func setKvMap(m interface{}, keys confKeys, kvMap map[string]Result) error {
+	tmp, ok := m.(map[string]interface{})
+	if !ok {
+		return errors.New("类型断言失败,配置内容格式:" + fmt.Sprintf("%v", tmp))
+	}
+	for k, v := range tmp {
+		keyNodes := append(keys, k)
+		switch v.(type) {
+		case map[string]interface{}:
+			_ = setKvMap(v, keyNodes, kvMap)
 		default:
-			data, msgType, err := unPacket(x.conn)
-			if err != nil {
-				if err == io.EOF {
-					Log.Error("远程主机主动关闭连接:", err)
-				}
-				if strings.Contains(err.Error(), "use of closed network connection") {
-					Log.Error("连接已被关闭:", err)
-				}
-			}
-			//收到Oneway消息
-			if msgType == ONEWAY {
-				x.handelOnewayMessage(data)
-			}
-			//收到Response消息
-			if msgType == RESPONSE {
-				x.handelResponseMessage(data)
-			}
+			kvMap[keyNodes.toString()] = genResult(v)
 		}
+
 	}
+	return nil
 }
 
-//计时时间到仍然没有心跳信令回包，前提收到心跳信令回包时要重置计时器
-func (x *xdiamondTCP) heartCheck() {
-	for {
-		select {
-		case <-x.heartTimmer.C:
-			Log.Debug("心跳超时重载...")
-			x.reload()
-		case <-x.stopClientChanl:
-			Log.Debug("退出计时器...")
-			return
-		}
-	}
-}
-
-//集中处理服务器返回消息
-func (x *xdiamondTCP) handelOnewayMessage(data []byte) {
-	res := new(oneway)
-	err := json.Unmarshal(data, res)
-	Log.Debug("Response:", res)
-	if err != nil {
-		Log.Error("服务响应json数据解码失败:", err)
-	}
-	if res.Type == ONEWAY && res.Command == CONFIGCHANGED {
-		Log.Info("配置有变更,准备同步配置数据...")
-		x.getConfig()
-	}
-}
-
-//进一步处理response类型的消息
-func (x *xdiamondTCP) handelResponseMessage(data []byte) {
-	res := new(response)
-	err := json.Unmarshal(data, res)
-	Log.Debug("Response:", res)
-	if err != nil {
-		Log.Error("服务响应json数据解码失败:", err)
-	}
-	if !res.Success {
-		Log.Error("服务器响应错误:", res.Error)
-	}
-	switch res.Command {
-	case HEARTBEAT:
-		Log.Debug("收到心跳回包...")
-		//重载心跳检测计时器
-		x.heartTimmer.Reset(clientheartInterval)
-	case GETCONFIG:
-		Log.Info("收到配置数据,准备更新...")
-		config, ok := res.Result["configs"]
-		if !ok {
-			Log.Error("返回结构错误:", config)
-		}
-		Log.Info("更新配置数据...")
-		x.confChangeChanl <- config
+// 生成结果对象
+func genResult(v interface{}) Result {
+	switch v.(type) {
+	case []interface{}, []map[string]interface{}, [][]interface{}, [][]map[string]interface{}, map[string]interface{}:
+		return Result{Array, v, true}
+	case string:
+		return Result{String, v, true}
+	case int, int8, int16, int32, int64:
+		return Result{Int, v, true}
+	case uint, uint8, uint16, uint32, uint64:
+		return Result{Uint, v, true}
+	case float32, float64:
+		return Result{Float, v, true}
+	case bool:
+		return Result{Bool, v, true}
+	case time.Time:
+		return Result{Time, v, true}
 	default:
-		Log.Error("未知的响应类型", res.Command, "消息体:", res)
+		return Result{Undefined, v, true}
 	}
-}
-
-//发送心跳包
-func (x *xdiamondTCP) sendHeartPacket() {
-	Log.Debug("发送心跳数据包....")
-	r := x.newRequest(REQUEST, HEARTBEAT)
-	r.Data = make(auth)
-	x.sendDataPacket(r)
-	//发送后重置计时器
-	x.heartTimmer.Reset(clientheartInterval)
-}
-
-//发送数据包
-func (x *xdiamondTCP) sendDataPacket(r *request) {
-	Log.Debug("准备发送数据包:", *r)
-	data, err := json.Marshal(r)
-	if err != nil {
-		Log.Error("消息结构序列化失败", err)
-	}
-	_, err = x.conn.Write(packet(r.Type, data))
-	if err != nil {
-		Log.Error("消息发送失败", err)
-	}
-}
-
-//获取配置
-func (x *xdiamondTCP) getConfig() {
-	Log.Info("更新配置....")
-	x.sendDataPacket(x.newRequest(REQUEST, GETCONFIG))
-}
-
-//实例化一个请求
-func (x *xdiamondTCP) newRequest(msgType messageType, cmdType commandType) *request {
-	object, version := x.getObjectAndVersion(x.fileName)
-	var a = auth{
-		"groupId":    x.GroupID,
-		"artifactId": object,
-		"version":    version,
-		"profile":    x.profile,
-		"secretKey":  x.SecretKey,
-	}
-	r := &request{
-		Type:    msgType,
-		Command: cmdType,
-		Data:    a,
-	}
-	return r
 }

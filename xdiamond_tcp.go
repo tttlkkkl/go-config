@@ -78,10 +78,8 @@ type auth map[string]string
 
 //客户端
 type client struct {
-	conn              net.Conn
-	resvResponseChanl chan []byte
-	resvOnewayChanl   chan []byte
-	confChangeChanl   chan []interface{}
+	conn            net.Conn
+	confChangeChanl chan []interface{}
 	// 客户端重载信令 0终止客户端,1重载客户端
 	stopClientChanl chan int
 	// 心跳计时，如果间隔时间内没有收到心跳回包，尝试重新载入连接
@@ -124,12 +122,10 @@ func newClient(addr string) *client {
 	}
 	//defer conn.Close()
 	return &client{
-		conn:              conn,
-		resvResponseChanl: make(chan []byte, 100),
-		resvOnewayChanl:   make(chan []byte, 100),
-		confChangeChanl:   make(chan []interface{}),
-		stopClientChanl:   make(chan int),
-		heartTimmer:       time.NewTimer(clientheartInterval),
+		conn:            conn,
+		confChangeChanl: make(chan []interface{}),
+		stopClientChanl: make(chan int),
+		heartTimmer:     time.NewTimer(clientheartInterval),
 	}
 }
 
@@ -137,8 +133,6 @@ func newClient(addr string) *client {
 func (x *xdiamondTCP) start() {
 	//处理连接
 	go x.handelConn()
-	//接收服务端数据
-	go x.receivePackets()
 	//心跳检测
 	go x.heartCheck()
 	//首次获取配置
@@ -147,8 +141,7 @@ func (x *xdiamondTCP) start() {
 
 // 重载连接
 func (x *xdiamondTCP) reload() {
-	// 暂时停止处理携程
-	x.stopClientChanl <- 1
+	// 暂时停止处理协程
 	x.stopClientChanl <- 1
 	x.stopClientChanl <- 1
 
@@ -186,18 +179,30 @@ func (x *xdiamondTCP) reload() {
 func (x *xdiamondTCP) handelConn() {
 	for {
 		select {
-		//收到Oneway消息
-		case data := <-x.resvOnewayChanl:
-			x.handelOnewayMessage(data)
-		//收到Response消息
-		case data := <-x.resvResponseChanl:
-			x.handelResponseMessage(data)
 		case sign := <-x.stopClientChanl:
 			Log.Debug("退出处理协程...", sign)
 			return
 		//空闲时发送心跳数据
 		case <-time.Tick(heartInterval):
 			x.sendHeartPacket()
+		default:
+			data, msgType, err := unPacket(x.conn)
+			if err != nil {
+				if err == io.EOF {
+					Log.Error("远程主机主动关闭连接:", err)
+				}
+				if strings.Contains(err.Error(), "use of closed network connection") {
+					Log.Error("连接已被关闭:", err)
+				}
+			}
+			//收到Oneway消息
+			if msgType == ONEWAY {
+				x.handelOnewayMessage(data)
+			}
+			//收到Response消息
+			if msgType == RESPONSE {
+				x.handelResponseMessage(data)
+			}
 		}
 	}
 }
@@ -212,34 +217,6 @@ func (x *xdiamondTCP) heartCheck() {
 		case <-x.stopClientChanl:
 			Log.Debug("退出计时器...")
 			return
-		}
-	}
-}
-
-//从服务器接收数据并解包
-func (x *xdiamondTCP) receivePackets() {
-	for {
-		select {
-		case sign := <-x.stopClientChanl:
-			//传递信号量
-			Log.Debug("退出消息协程...", sign)
-			return
-		default:
-			data, msgType, err := unPacket(x.conn)
-			if err != nil {
-				if err == io.EOF {
-					Log.Error("远程主机主动关闭连接:", err)
-				}
-				if strings.Contains(err.Error(), "use of closed network connection") {
-					Log.Error("连接已被关闭:", err)
-				}
-			}
-			if msgType == ONEWAY {
-				x.resvOnewayChanl <- data
-			}
-			if msgType == RESPONSE {
-				x.resvResponseChanl <- data
-			}
 		}
 	}
 }
