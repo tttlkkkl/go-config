@@ -4,6 +4,7 @@ package conf
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -91,6 +92,17 @@ func init() {
 		data:    make(map[string]ConfigObject),
 		mutex:   new(sync.RWMutex),
 		isCache: true,
+	}
+	// 设置日志路径,在此之前打印的信息还是会输出到终端
+	logConf := NewConfig("comm.log", SourceFile)
+	logDir := logConf.Get("base.dir")
+	if logDir.Exists() && logDir.String() != "" {
+		logFileName := logDir.String() + "/conf.log"
+		fileInfo, err := os.OpenFile(logFileName, os.O_CREATE|os.O_APPEND, 0664)
+		if err != nil {
+			Log.Error("日志文件打开失败...", err)
+		}
+		SetLogOutput(fileInfo, All)
 	}
 }
 

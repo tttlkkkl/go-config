@@ -8,37 +8,7 @@ path="/xxx/ccc"
   int = 1
   float =1.1
   bool = true
-#主库1
-[[database.master]]
-  server = "192.168.1.1"
-  ports = [ 8001, 8003, 8002 ]
-  connection_max = 5000
-  enabled = true
-#主库2
-[[database.master]]
-  server = "192.168.1.1"
-  ports = [ 8001, 8003, 8002 ]
-  connection_max = 5000
-  enabled = true
-#从库1
-[[database.slaves]]
-  server = "192.168.1.1"
-  ports = [ 8001, 8003, 8002 ]
-  connection_max = 5000
-  enabled = true
-#从库2
-[[database.slaves]]
-  server = "192.168.1.1"
-  ports = [ 8001, 8003, 8002 ]
-  connection_max = 5000
-  enabled = true
-#从库3
-[[database.slaves]]
-  server = "192.168.1.1"
-  ports = [ 8001, 8003, 8002 ]
-  connection_max = 5000
-  enabled = true
-
+  
 [servers]
   [servers.alpha]
   ip = "10.0.0.1"

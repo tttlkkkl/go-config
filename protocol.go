@@ -26,12 +26,6 @@ func unPacket(conn net.Conn) (data []byte, msgType messageType, err error) {
 	header := make([]byte, headerLen)
 	_, err = conn.Read(header)
 	if err != nil {
-		// if err == io.EOF {
-		// 	Log.Error("远程主机主动关闭连接:", err)
-		// }
-		// // if strings.Contains(err.Error(), "use of closed network connection") {
-		// // }
-		// Log.Error("包头读取失败:", err)
 		return nil, 0, err
 	}
 	vs, err := getUint16(header[:2])

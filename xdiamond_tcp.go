@@ -1,11 +1,13 @@
 package conf
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -80,8 +82,8 @@ type auth map[string]string
 type client struct {
 	conn            net.Conn
 	confChangeChanl chan []interface{}
-	// 客户端重载信令 0终止客户端,1重载客户端
-	stopClientChanl chan int
+	stop            context.CancelFunc
+	reloadFlag      int64
 	// 心跳计时，如果间隔时间内没有收到心跳回包，尝试重新载入连接
 	heartTimmer *time.Timer
 }
@@ -124,46 +126,60 @@ func newClient(addr string) *client {
 	return &client{
 		conn:            conn,
 		confChangeChanl: make(chan []interface{}),
-		stopClientChanl: make(chan int),
+		stop:            nil,
+		reloadFlag:      0,
 		heartTimmer:     time.NewTimer(clientheartInterval),
 	}
 }
 
 // 启动客户端
 func (x *xdiamondTCP) start() {
+	ctx, cancel := context.WithCancel(context.Background())
+	x.stop = cancel
 	//处理连接
-	go x.handelConn()
+	go x.handelConn(ctx)
 	//心跳检测
-	go x.heartCheck()
+	go x.heartCheck(ctx)
 	//首次获取配置
 	x.getConfig()
 }
 
 // 重载连接
 func (x *xdiamondTCP) reload() {
-	// 暂时停止处理协程
-	x.stopClientChanl <- 1
-	x.stopClientChanl <- 1
-
+	if x.stop == nil {
+		Log.Error("服务尚未启动，不能重载...")
+		return
+	}
+	if atomic.LoadInt64(&x.reloadFlag) == 1 {
+		return
+	}
+	_ = atomic.AddInt64(&x.reloadFlag, 1)
+	defer atomic.AddInt64(&x.reloadFlag, 0)
+	// 停止正在进行的处理协程
+	x.stop()
 	_ = x.conn.Close()
 	var wg sync.WaitGroup
 	wg.Add(retryConnCount)
 	t := time.NewTimer(retryConnInterval)
-	stop := make(chan int, 1)
+	tries := 0
 	go func() {
 		for {
 			select {
 			case <-t.C:
-				Log.Info("尝试重载连接...")
-				conn, err := net.Dial("tcp", x.TCPAddress)
+				tries++
+				if tries > retryConnCount {
+					Log.Error("无法重连请检查网络或配置中心状态 ...")
+					return
+				}
 				wg.Done()
+				Log.Info("尝试重连...第", tries, "次...")
+				conn, err := net.Dial("tcp", x.TCPAddress)
 				if err != nil {
 					Log.Error("连接重载失败...")
 					continue
 				}
 				x.conn = conn
-			case <-stop:
-				wg.Add(0)
+				wg.Add(tries - retryConnCount)
 				return
 			}
 		}
@@ -176,11 +192,11 @@ func (x *xdiamondTCP) reload() {
 }
 
 //处理连接
-func (x *xdiamondTCP) handelConn() {
+func (x *xdiamondTCP) handelConn(ctx context.Context) {
 	for {
 		select {
-		case sign := <-x.stopClientChanl:
-			Log.Debug("退出处理协程...", sign)
+		case <-ctx.Done():
+			Log.Debug("退出处理协程...")
 			return
 		//空闲时发送心跳数据
 		case <-time.Tick(heartInterval):
@@ -190,9 +206,11 @@ func (x *xdiamondTCP) handelConn() {
 			if err != nil {
 				if err == io.EOF {
 					Log.Error("远程主机主动关闭连接:", err)
+					go x.reload()
 				}
 				if strings.Contains(err.Error(), "use of closed network connection") {
 					Log.Error("连接已被关闭:", err)
+					go x.reload()
 				}
 			}
 			//收到Oneway消息
@@ -208,13 +226,13 @@ func (x *xdiamondTCP) handelConn() {
 }
 
 //计时时间到仍然没有心跳信令回包，前提收到心跳信令回包时要重置计时器
-func (x *xdiamondTCP) heartCheck() {
+func (x *xdiamondTCP) heartCheck(ctx context.Context) {
 	for {
 		select {
 		case <-x.heartTimmer.C:
 			Log.Debug("心跳超时重载...")
-			x.reload()
-		case <-x.stopClientChanl:
+			go x.reload()
+		case <-ctx.Done():
 			Log.Debug("退出计时器...")
 			return
 		}
