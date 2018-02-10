@@ -97,7 +97,7 @@ func init() {
 	logConf := NewConfig("comm.log", SourceFile)
 	logDir := logConf.Get("base.dir")
 	dir := logDir.String()
-	if logDir.Exists() && dir != "" && false {
+	if logDir.Exists() && dir != "" {
 		dirInfo, err := os.Stat(dir)
 		if err != nil {
 			if os.IsNotExist(err) {
