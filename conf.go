@@ -96,9 +96,23 @@ func init() {
 	// 设置日志路径,在此之前打印的信息还是会输出到终端
 	logConf := NewConfig("comm.log", SourceFile)
 	logDir := logConf.Get("base.dir")
-	if logDir.Exists() && logDir.String() != "" {
-		logFileName := logDir.String() + "/conf.log"
-		fileInfo, err := os.OpenFile(logFileName, os.O_CREATE|os.O_APPEND, 0664)
+	dir := logDir.String()
+	if logDir.Exists() && dir != "" && false {
+		dirInfo, err := os.Stat(dir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				err = os.MkdirAll(dir, 0664)
+				if err != nil {
+					Log.Fatal("创建日志目录失败:", err)
+				}
+			} else {
+				Log.Fatal(err)
+			}
+		} else if !dirInfo.IsDir() {
+			Log.Fatal(dir, " : 不是一个有效的目录")
+		}
+		logFileName := dir + "/conf.log"
+		fileInfo, err := os.OpenFile(logFileName, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0664)
 		if err != nil {
 			Log.Error("日志文件打开失败...", err)
 		}
@@ -141,6 +155,16 @@ func (c *conf) getConfigObject(fileName string, source Source, obj analysis) *Co
 	}
 	tmp, err := obj.analysisConfig(fileName)
 	if err != nil {
+		//尝试从备份文件读取
+		if source == SourceXdaHTTP || source == SourceXdaTCP {
+			Log.Warning("配置中心连接失败..." + err.Error())
+			Log.Info("尝试从本地备份读取配置...")
+			tmps, err := backupRecovery(fileName)
+			if err != nil {
+				Log.Fatal(err)
+			}
+			return c.genConfigObject(fileName, source, tmps)
+		}
 		Log.Fatal(err)
 	}
 	return c.genConfigObject(fileName, source, tmp)
@@ -154,17 +178,29 @@ func (c *conf) genConfigObject(fileName string, source Source, confMap map[strin
 		Log.Fatal(err)
 	}
 	co := ConfigObject{kvMap, true, source, fileName}
-	if c.isCache {
-		//写锁定
-		c.mutex.Lock()
-		c.data[fileName] = co
-		c.mutex.Unlock()
+	if c.isCache || source == SourceXdaTCP || source == SourceXdaHTTP {
+		// 配置中心数据备份
+		if source == SourceXdaTCP || source == SourceXdaHTTP {
+			err = backups(fileName, confMap)
+			if err != nil {
+				Log.Error(err)
+			}
+		}
 	}
+	c.save(fileName, co)
+	return &co
+}
+
+//  数据保存到内存
+func (c *conf) save(fileName string, co ConfigObject) {
+	//写锁定
+	c.mutex.Lock()
+	c.data[fileName] = co
+	c.mutex.Unlock()
 	//如果有设置回调函数，调用之
 	if c.handel != nil {
 		c.handel.CallbackHandel(fileName, &co)
 	}
-	return &co
 }
 
 // setKvMap 递归设置一个kvMap

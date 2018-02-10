@@ -83,6 +83,5 @@ func (x *xdiamondHTTP) httpPull(object string, version string) ([]byte, error) {
 func (x *xdiamondHTTP) getFullURL(object string, version string) string {
 	url := "http://" + x.HTTPAddress + uri
 	url += "?groupId=" + x.GroupID + "&artifactId=" + object + "&version=" + version + "&profile=" + x.profile + "&secretKey=" + x.SecretKey + "&format=" + format
-	fmt.Println(url)
 	return url
 }

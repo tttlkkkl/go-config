@@ -3,6 +3,6 @@
 	#secretKey auth认证key 默认 ""
 	secret_key ="68bq57jhxmi"
 	#配置中心tcp地址
-	tcp_address ="10.0.200.53:5678"
+	tcp_address ="10.0.200.53:56784"
     #配置中心http地址，不能加http前缀
 	http_address ="10.0.200.53:8089"

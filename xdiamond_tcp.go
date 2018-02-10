@@ -7,7 +7,6 @@ import (
 	"net"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -36,8 +35,8 @@ const (
 const (
 	//心跳间隔,配置中心心跳间隔为15秒，为确保网络延时等特殊情况下不超时，此处设为14秒
 	heartInterval = 14 * time.Second
-	//客户端收取心跳回包的间隔
-	clientheartInterval = 2 * heartInterval
+	//客户端收取心跳回包的间隔 两个周期内没有收到回包重连
+	clientheartInterval = heartInterval * 2
 	//重连尝试次数
 	retryConnCount = 20
 	//尝试重连间隔
@@ -83,7 +82,8 @@ type client struct {
 	conn            net.Conn
 	confChangeChanl chan []interface{}
 	stop            context.CancelFunc
-	reloadFlag      int64
+	loader          *sync.Once
+	addr            string
 	// 心跳计时，如果间隔时间内没有收到心跳回包，尝试重新载入连接
 	heartTimmer *time.Timer
 }
@@ -97,8 +97,11 @@ func newXdiamondTCP() *xdiamondTCP {
 
 // 获取并解析用户中心配置信息
 func (x *xdiamondTCP) analysisConfig(fileName string) (map[string]interface{}, error) {
-	x.start()
 	x.fileName = fileName
+	err := x.start()
+	if err != nil {
+		return nil, err
+	}
 	//阻塞等待返回
 	data := <-x.confChangeChanl
 	//启动go携程消费无缓冲通道
@@ -118,22 +121,27 @@ func (x *xdiamondTCP) synConfigData() {
 
 // 实例化tcp客户端
 func newClient(addr string) *client {
-	conn, err := net.Dial("tcp", addr)
-	if err != nil {
-		Log.Fatal("配置中心连接失败:", err)
-	}
 	//defer conn.Close()
 	return &client{
-		conn:            conn,
+		conn:            nil,
 		confChangeChanl: make(chan []interface{}),
 		stop:            nil,
-		reloadFlag:      0,
+		addr:            addr,
+		loader:          new(sync.Once),
 		heartTimmer:     time.NewTimer(clientheartInterval),
 	}
 }
 
 // 启动客户端
-func (x *xdiamondTCP) start() {
+func (x *xdiamondTCP) start() error {
+	Log.Info("启动服务...")
+	if x.conn == nil {
+		conn, err := net.Dial("tcp", x.addr)
+		if err != nil {
+			return err
+		}
+		x.conn = conn
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	x.stop = cancel
 	//处理连接
@@ -142,6 +150,7 @@ func (x *xdiamondTCP) start() {
 	go x.heartCheck(ctx)
 	//首次获取配置
 	x.getConfig()
+	return nil
 }
 
 // 重载连接
@@ -150,45 +159,45 @@ func (x *xdiamondTCP) reload() {
 		Log.Error("服务尚未启动，不能重载...")
 		return
 	}
-	if atomic.LoadInt64(&x.reloadFlag) == 1 {
-		return
-	}
-	_ = atomic.AddInt64(&x.reloadFlag, 1)
-	defer atomic.AddInt64(&x.reloadFlag, 0)
+	x.loader.Do(func() {
+		x.load()
+	})
+	x.loader = new(sync.Once)
+}
+
+// 重载
+func (x *xdiamondTCP) load() {
 	// 停止正在进行的处理协程
 	x.stop()
 	_ = x.conn.Close()
 	var wg sync.WaitGroup
 	wg.Add(retryConnCount)
-	t := time.NewTimer(retryConnInterval)
 	tries := 0
 	go func() {
 		for {
 			select {
-			case <-t.C:
+			case <-time.Tick(retryConnInterval):
 				tries++
-				if tries > retryConnCount {
-					Log.Error("无法重连请检查网络或配置中心状态 ...")
-					return
-				}
 				wg.Done()
 				Log.Info("尝试重连...第", tries, "次...")
 				conn, err := net.Dial("tcp", x.TCPAddress)
 				if err != nil {
 					Log.Error("连接重载失败...")
+					if tries >= retryConnCount {
+						Log.Error("无法重连请检查网络或配置中心状态 ...")
+						return
+					}
 					continue
 				}
 				x.conn = conn
+				Log.Info("重载连接成功...")
+				_ = x.start()
 				wg.Add(tries - retryConnCount)
 				return
 			}
 		}
 	}()
 	wg.Wait()
-	Log.Info("重载连接成功...")
-	//重置计时器
-	x.heartTimmer.Reset(clientheartInterval)
-	x.start()
 }
 
 //处理连接
@@ -198,19 +207,18 @@ func (x *xdiamondTCP) handelConn(ctx context.Context) {
 		case <-ctx.Done():
 			Log.Debug("退出处理协程...")
 			return
-		//空闲时发送心跳数据
-		case <-time.Tick(heartInterval):
-			x.sendHeartPacket()
 		default:
 			data, msgType, err := unPacket(x.conn)
 			if err != nil {
 				if err == io.EOF {
-					Log.Error("远程主机主动关闭连接:", err)
+					Log.Error("连接断开:", err)
 					go x.reload()
+					return
 				}
 				if strings.Contains(err.Error(), "use of closed network connection") {
-					Log.Error("连接已被关闭:", err)
+					Log.Error("连接遭遇非正常的关闭:", err)
 					go x.reload()
+					return
 				}
 			}
 			//收到Oneway消息
@@ -227,13 +235,17 @@ func (x *xdiamondTCP) handelConn(ctx context.Context) {
 
 //计时时间到仍然没有心跳信令回包，前提收到心跳信令回包时要重置计时器
 func (x *xdiamondTCP) heartCheck(ctx context.Context) {
+	x.heartTimmer.Reset(clientheartInterval)
 	for {
 		select {
+		//发送心跳包
+		case <-time.Tick(heartInterval):
+			x.sendHeartPacket()
 		case <-x.heartTimmer.C:
 			Log.Debug("心跳超时重载...")
 			go x.reload()
 		case <-ctx.Done():
-			Log.Debug("退出计时器...")
+			Log.Debug("退出心跳计时器...")
 			return
 		}
 	}
